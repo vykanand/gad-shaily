@@ -1,0 +1,2107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';">
+  <title>GAD QR-Scanning System</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    
+    html, body {
+      height: 100vh;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #001D4A;
+      color: white;
+      display: flex;
+      min-height: 100vh;
+    }
+
+    .container {
+      flex: 1;
+      margin: 0;
+      padding: 20px;
+      background-color: #003366;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header h1 {
+      font-size: 28px;
+      color: yellow;
+      margin: 0;
+    }
+
+    .logo {
+      font-size: 30px;
+      font-weight: bold;
+      color: #ccc;
+      background: radial-gradient(circle, red 10%, black 50%);
+      padding: 10px;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo img {
+      max-height: 50px;
+      width: auto;
+      display: none; /* Hidden by default until loaded */
+    }
+
+    .logo-text {
+      display: block; /* Shown by default */
+    }
+
+    .buttons {
+      display: flex;
+      gap: 10px;
+    }
+
+    .buttons button {
+      background-color: #3399ff;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 16px;
+      min-width: 100px;
+    }
+
+    .main {
+      display: flex;
+      margin-top: 20px;
+      flex: 1;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .input-section {
+      background-color: #0070C0;
+      border-radius: 15px;
+      padding: 20px;
+      flex: 2;
+      min-width: 300px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .input-section h2 {
+      color: yellow;
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+
+    .row {
+      display: flex;
+      margin-bottom: 10px;
+      align-items: center;
+    }
+
+    .row label {
+      width: 120px;
+      font-weight: bold;
+      font-size: 18px;
+    }
+
+    .row input {
+      flex: 1;
+      padding: 12px 15px;
+      background-color: #003366;
+      border: 1px solid #3399ff;
+      color: white;
+      font-weight: bold;
+      font-size: 20px;
+      border-radius: 4px;
+      margin: 5px 0;
+    }
+
+    .row input.required {
+      border-color: red;
+    }
+
+    .verification {
+      margin-top: 20px;
+      display: flex;
+      flex-direction: column;
+      height: calc(100% - 40px); /* Adjust based on your layout */
+    }
+
+    .verification h3 {
+      color: yellow;
+      margin-bottom: 10px;
+      font-size: 18px;
+    }
+
+    .verify-row {
+      display: flex;
+      margin-bottom: 10px;
+      align-items: stretch;
+      flex: 1;
+    }
+
+    .verify-row button {
+      background-color: #1F4E79;
+      color: white;
+      border: none;
+      padding: 20px 30px;
+      font-weight: bold;
+      margin-right: 15px;
+      font-size: 26px;
+      border-radius: 8px;
+      cursor: pointer;
+      min-width: 200px;
+      transition: all 0.2s;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      flex: 1;
+      white-space: normal;
+      text-align: center;
+    }
+    
+    .verify-row button.failed {
+      background-color: #ff3b30;
+    }
+
+    .verify-row button:hover {
+      transform: scale(1.05);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+
+    .verify-row .value {
+      background-color: #003366;
+      padding: 20px;
+      color: white;
+      font-weight: bold;
+      font-size: 24px;
+      border: 1px solid #3399ff;
+      border-radius: 6px;
+      min-width: 200px;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 2;
+    }
+
+    .ok {
+      background-color: #00FF99;
+      color: black;
+      font-weight: bold;
+    }
+    
+    .scanned-success {
+      color: #00ff00 !important;
+    }
+
+    .right-section {
+      background-color: #001d4a;
+      flex: 1;
+      padding: 10px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .right-section .info-box {
+      background-color: #0070C0;
+      margin-bottom: 10px;
+      padding: 10px;
+      border-radius: 5px;
+    }
+
+    .info-box label {
+      display: block;
+      font-size: 18px;
+    }
+
+    .info-box input {
+      width: 120px;
+      padding: 10px 12px;
+      font-weight: bold;
+      background-color: #003366;
+      color: white;
+      border: 1px solid #3399ff;
+      border-radius: 4px;
+      font-size: 20px;
+      margin: 5px 0;
+    }
+
+    #date {
+      width: 140px;
+    }
+
+    .status {
+      margin-top: 20px;
+      color: yellow;
+    }
+
+    .pass-box {
+      background-color: limegreen;
+      color: black;
+      font-size: 42px;
+      font-weight: bold;
+      padding: 30px 0;
+      margin-top: 10px;
+      border-radius: 8px;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 150px; /* Ensure minimum height */
+    }
+
+    .failed {
+      background-color: red;
+      color: white;
+      font-size: 42px;
+      font-weight: bold;
+      padding: 30px 0;
+      margin-top: 10px;
+      border-radius: 8px;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 150px; /* Ensure minimum height */
+    }
+
+    #pass-status:not(.pass-box):not(.failed) {
+      background-color: #1F4E79;
+      color: white;
+      font-size: 36px;
+      font-weight: bold;
+      padding: 30px 0;
+      margin-top: 10px;
+      border-radius: 8px;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 150px; /* Ensure minimum height */
+    }
+
+    @media (max-width: 768px) {
+      .header {
+        flex-direction: column;
+        text-align: center;
+        gap: 15px;
+      }
+
+      .main {
+        flex-direction: column;
+      }
+
+      .input-section,
+      .right-section {
+        width: 100%;
+      }
+
+      .row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+      }
+
+      .row label {
+        width: 100%;
+      }
+
+      .row input {
+        width: 100%;
+      }
+
+      .verify-row {
+        flex-direction: column;
+        gap: 5px;
+      }
+
+      .verify-row button {
+        width: 100%;
+        margin-right: 0;
+      }
+
+      .verify-row .value {
+        width: 100%;
+      }
+
+      .info-box input {
+        width: 100%;
+      }
+    }
+
+    /* Modal Styles */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.7);
+      z-index: 1000;
+    }
+
+    .modal-content {
+      position: relative;
+      background-color: #003366;
+      margin: 2% auto;
+      padding: 20px;
+      width: 90%;
+      max-width: 1200px;
+      border-radius: 10px;
+    }
+
+    .modal-header {
+      position: relative;
+      display: flex;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-right: 40px;
+    }
+
+    .modal-title {
+      color: yellow;
+      font-size: 24px;
+      margin: 0;
+      flex: 1;
+    }
+
+    .close-modal {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      color: white;
+      font-size: 24px;
+      font-weight: bold;
+      cursor: pointer;
+      background-color: #ff3b30;
+      border: 2px solid white;
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      transition: all 0.2s;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      margin-left: 0;
+    }
+
+    .close-modal:hover {
+      background-color: #ff1a1a;
+      transform: scale(1.1);
+      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
+    }
+
+    .search-box {
+      width: 100%;
+      padding: 15px 20px;
+      margin-bottom: 25px;
+      background-color: #001d4a;
+      border: 2px solid #3399ff;
+      color: white;
+      font-size: 18px;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+
+    .parts-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+
+    .part-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px;
+      background-color: #0070C0;
+      margin-bottom: 10px;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .part-item:hover {
+      background-color: #1F4E79;
+    }
+
+    .part-info {
+      flex-grow: 1;
+    }
+
+    .part-code {
+      font-weight: bold;
+      color: yellow;
+    }
+
+    .part-name {
+      color: white;
+      margin-left: 20px;
+    }
+
+    .part-customer {
+      color: #aaa;
+      font-size: 0.9em;
+    }
+
+    .no-results {
+      text-align: center;
+      color: yellow;
+      padding: 20px;
+    }
+
+    /* Scan Logs Styles */
+    .scan-logs {
+      margin-top: 20px;
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+
+    .logs-table {
+      width: 100%;
+      border-collapse: collapse;
+      color: white;
+    }
+
+    .logs-table th,
+    .logs-table td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #1F4E79;
+    }
+
+    .logs-table th {
+      background-color: #1F4E79;
+      color: yellow;
+      position: sticky;
+      top: 0;
+    }
+
+    .logs-table tr.match td {
+      background-color: rgba(0, 255, 0, 0.1);
+    }
+
+    .logs-table tr.no-match td {
+      background-color: rgba(255, 0, 0, 0.1);
+    }
+
+    .logs-table tr:hover td {
+      background-color: #1F4E79;
+    }
+
+    .shake {
+      animation: shake 0.5s;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      10%, 30%, 50%, 70%, 90% { transform: translateX(-10px); }
+      20%, 40%, 60%, 80% { transform: translateX(10px); }
+    }
+
+    .blink-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(255, 0, 0, 0.5);
+      display: none;
+      animation: blink 2s 3;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    @keyframes blink {
+      0% { opacity: 1; }
+      50% { opacity: 0; }
+      100% { opacity: 0; }
+    }
+  </style>
+  <script>
+    // Electron preload: require ipcRenderer for backend communication
+  const { ipcRenderer } = require('electron');
+  const fs = require('node:fs');
+  const path = require('node:path');
+    // Main application variables
+    let masterData = [];
+    let lastScannedCode = '';
+    let scanLogs = [];
+    
+    // Load master data from Excel file
+    async function loadMasterData() {
+      try {
+        const rawData = await ipcRenderer.invoke('read-master-data');
+        if (!rawData || !rawData.length) {
+          console.error('Failed to read master data');
+          document.getElementById('scan-by').value = 'ERROR LOADING MASTER';
+          return;
+        }
+
+        // Get the headers from the first row
+        const headers = rawData[0];
+        console.log('Headers found:', headers);
+
+        // Find the column indices
+        const indices = {
+          partCode: headers.findIndex(h => 
+            String(h).toLowerCase().includes('part') && String(h).toLowerCase().includes('no')),
+          partName: headers.findIndex(h => 
+            String(h).toLowerCase().includes('part') && String(h).toLowerCase().includes('name')),
+          customer: headers.findIndex(h => 
+            String(h).toLowerCase().includes('customer'))
+        };
+
+        console.log('Column indices:', indices);
+
+        // Validate required columns
+        if (indices.partCode === -1 || indices.partName === -1) {
+          const error = 'Required columns not found. Need "Part No" and "Part Name" columns.';
+          console.error(error);
+          document.getElementById('scan-by').value = 'INVALID MASTER';
+          alert(error);
+          return;
+        }
+
+        // Process the data rows
+        masterData = rawData.slice(1).map(row => ({
+          PartCode: String(row[indices.partCode] || ''),
+          PartName: String(row[indices.partName] || ''),
+          Customer: indices.customer !== -1 ? String(row[indices.customer] || '') : ''
+        })).filter(item => item.PartCode); // Filter out rows without part code
+
+        console.log('Master data loaded:', masterData);
+
+        // Show alert if no data was loaded
+        if (masterData.length === 0) {
+          const error = 'No data found in master.xlsx. Please check the file format.\n\nRequired columns:\n- Part No\n- Part Name\n- Customer (optional)';
+          console.error(error);
+          alert(error);
+          return;
+        }
+      } catch (error) {
+        console.error('Error loading master data:', error);
+        // Avoid referencing out-of-scope variables here to prevent crashes
+        document.getElementById('scan-by').value = 'ERROR LOADING MASTER';
+        alert('Error loading master.xlsx file.\n\nPlease ensure:\n' +
+              '1. The file exists in the same folder\n' +
+              '2. File has columns "Part No" and "Part Name"\n' +
+              '3. Data starts from the second row');
+      }
+    }
+
+    // Find part details from master data
+    function findPartDetails(partCode) {
+      return masterData.find(item =>
+        item.PartCode?.toString() === partCode
+      );
+    }
+
+    // Flag to prevent multiple simultaneous saves
+    let isSaving = false;
+    let currentLogDate = new Date().toISOString().split('T')[0]; // Track current log date
+
+    // Function to load scan logs from today's date file
+    async function loadTodaysScanLogs() {
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        console.log('Loading scan logs for date:', today);
+
+        // Call backend to read today's scan logs
+        const logsData = await ipcRenderer.invoke('read-logs', { date: today });
+
+        if (!logsData || !Array.isArray(logsData)) {
+          console.log('No logs found for today or invalid data format');
+          return [];
+        }
+
+        // Convert the loaded data back to log entry format
+        const loadedLogs = logsData.map(logData => {
+          const log = {
+            timestamp: new Date(logData['Date'].split('/').reverse().join('-') + ' ' + logData['Time']),
+            partCode: logData['Part Code'] || '',
+            partName: logData['Part Name'] || '',
+            customer: logData['Customer'] || '',
+            scannedCode: logData['Scanned Code'] || '',
+            scannerInfo: logData['Scanner'] || '',
+            matchStatus: logData['Status'] || 'UNKNOWN'
+          };
+
+          // If customer is empty in the log, try to get it from current master data
+          if (!log.customer && log.partCode) {
+            const partDetails = masterData.find(item => item.PartCode === log.partCode);
+            if (partDetails && partDetails.Customer) {
+              log.customer = partDetails.Customer;
+            }
+          }
+
+          return log;
+        });
+
+        console.log(`Loaded ${loadedLogs.length} logs from today's file`);
+        return loadedLogs;
+      } catch (error) {
+        console.error('Error loading today\'s scan logs:', error);
+        showNotification('Error loading scan history. Please try again.', 'error');
+        return [];
+      }
+    }
+
+    // Function to save a single scan log entry in real-time
+    async function saveScanLogRealtime(logEntry) {
+      console.log('saveScanLogRealtime called with:', logEntry);
+
+      if (isSaving) {
+        console.log('Already saving, queuing this save...');
+        // Wait a bit and retry
+        setTimeout(() => saveScanLogRealtime(logEntry), 100);
+        return;
+      }
+
+      isSaving = true;
+
+      try {
+        // Check if date has changed (new day started)
+        const today = new Date().toISOString().split('T')[0];
+        if (today !== currentLogDate) {
+          console.log('Date changed from', currentLogDate, 'to', today);
+          currentLogDate = today;
+        }
+
+        // Prepare single log entry for saving
+        const logToSave = {
+          'Date': logEntry.timestamp.toLocaleDateString('en-GB'),
+          'Time': logEntry.timestamp.toLocaleTimeString('en-GB'),
+          'Part Code': logEntry.partCode,
+          'Part Name': logEntry.partName,
+          'Customer': logEntry.customer,
+          'Scanned Code': logEntry.scannedCode,
+          'Scanner': logEntry.scannerInfo,
+          'Status': logEntry.matchStatus
+        };
+
+        console.log('Saving log entry to Excel:', logToSave);
+
+        // Save single log entry using IPC with date-based filename
+        const result = await ipcRenderer.invoke('write-single-log', {
+          log: logToSave,
+          date: currentLogDate
+        });
+
+        console.log('Log saved successfully to:', result.filePath);
+
+      } catch (error) {
+        console.error('Error saving log in real-time:', error);
+        showNotification('Warning: Failed to save scan log to file', 'error');
+      } finally {
+        isSaving = false;
+      }
+    }
+
+    // Function to save a single error scan log entry in real-time
+    async function saveErrorScanLogRealtime(logEntry) {
+      console.log('saveErrorScanLogRealtime called with:', logEntry);
+
+      if (isSaving) {
+        console.log('Already saving, queuing this save...');
+        setTimeout(() => saveErrorScanLogRealtime(logEntry), 100);
+        return;
+      }
+
+      isSaving = true;
+
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        if (today !== currentLogDate) {
+          currentLogDate = today;
+        }
+
+        const logToSave = {
+          'Date': logEntry.timestamp.toLocaleDateString('en-GB'),
+          'Time': logEntry.timestamp.toLocaleTimeString('en-GB'),
+          'Part Code': logEntry.partCode,
+          'Part Name': logEntry.partName,
+          'Customer': logEntry.customer,
+          'Scanned Code': logEntry.scannedCode,
+          'Scanner': logEntry.scannerInfo,
+          'Status': logEntry.matchStatus
+        };
+
+        console.log('Saving error log entry to Excel:', logToSave);
+
+        const result = await ipcRenderer.invoke('write-single-log', {
+          log: logToSave,
+          date: 'error-' + currentLogDate
+        });
+
+        console.log('Error log saved successfully to:', result.filePath);
+
+      } catch (error) {
+        console.error('Error saving error log in real-time:', error);
+        showNotification('Warning: Failed to save error scan log to file', 'error');
+      } finally {
+        isSaving = false;
+      }
+    }
+
+    // Function to save all logs to Excel (for manual export)
+    async function saveLogsToExcel() {
+      if (scanLogs.length === 0) {
+        console.log('No logs to save');
+        showNotification('No scan logs to export', 'error');
+        return;
+      }
+
+      if (isSaving) {
+        console.log('Already saving logs, skipping this save');
+        return;
+      }
+
+      isSaving = true;
+      
+      try {
+        // Prepare logs for saving with date included
+        const logsToSave = scanLogs.map(log => ({
+          'Date': log.timestamp.toLocaleDateString('en-GB'),
+          'Time': log.timestamp.toLocaleTimeString('en-GB'),
+          'Part Code': log.partCode,
+          'Part Name': log.partName,
+          'Customer': log.customer,
+          'Scanned Code': log.scannedCode,
+          'Scanner': log.scannerInfo,
+          'Status': log.matchStatus
+        }));
+
+        // Sort logs by date and time in descending order (newest first)
+        logsToSave.sort((a, b) => {
+          const dateA = new Date(a['Date'].split('/').reverse().join('-') + ' ' + a['Time']);
+          const dateB = new Date(b['Date'].split('/').reverse().join('-') + ' ' + b['Time']);
+          return dateB - dateA;
+        });
+        
+        try {
+          // Save logs using IPC
+          const result = await ipcRenderer.invoke('write-logs', logsToSave);
+          console.log(`Successfully saved ${logsToSave.length} logs to ${result.filePath}`);
+          
+          showNotification(`Successfully exported ${logsToSave.length} scan logs`, 'info');
+        } catch (error) {
+          console.error('Error saving logs:', error);
+          showNotification('Error exporting logs. Please try again.', 'error');
+        }
+      } catch (error) {
+        console.error('Error in saveLogsToExcel:', error);
+      } finally {
+        // Always reset the saving flag
+        isSaving = false;
+      }
+    }
+
+    // Handle scanned input
+    function handleScan(scannedCode) {
+      console.log('handleScan called with:', scannedCode);
+
+      try {
+        // Clean the scanned code
+        const cleanedCode = scannedCode;
+        console.log('Cleaned code:', cleanedCode);
+
+        if (!cleanedCode) {
+          console.log('Empty code after cleaning, ignoring');
+          return;
+        }
+
+        const currentPartCode = document.getElementById('part-code').value;
+        console.log('Comparing scanned code:', cleanedCode, 'with part code:', currentPartCode);
+
+        const isMatch = cleanedCode === currentPartCode;
+        const scannerInfo = document.getElementById('scan-by').value;
+        
+        console.log('Match result:', isMatch);
+        
+        // Create scan log entry
+        const logEntry = {
+          timestamp: new Date(),
+          partCode: currentPartCode,
+          partName: document.getElementById('part-name').value,
+          customer: document.getElementById('customer').value,
+          scannedCode: cleanedCode,
+          scannerInfo: scannerInfo,
+          matchStatus: isMatch ? 'MATCHED' : 'NOT MATCHED'
+        };
+        scanLogs.unshift(logEntry); // Add to beginning of array
+        
+        // Save to Excel in real-time
+        if (isMatch) {
+          console.log('Successful scan - saving to Excel in real-time');
+          saveScanLogRealtime(logEntry);
+        } else {
+          console.log('Failed scan - saving error log to separate file');
+          saveErrorScanLogRealtime(logEntry);
+        }
+        
+        // Update UI with scanned data
+        const scanDataValue = document.getElementById('scan-data-value');
+        scanDataValue.textContent = cleanedCode;
+        
+        if (isMatch) {
+          // Handle successful scan
+          document.getElementById('scan-status-value').textContent = 'OK';
+          document.getElementById('scan-status-value').classList.add('ok');
+          document.getElementById('part-code-status-value').textContent = 'DATA MATCHED';
+          document.getElementById('part-code-status-value').classList.add('ok');
+          document.getElementById('pass-status').textContent = 'PASS';
+          document.getElementById('pass-status').classList.remove('failed');
+          document.getElementById('pass-status').classList.add('pass-box');
+
+          // Change back to READY after 1000ms
+          setTimeout(() => {
+            document.getElementById('pass-status').textContent = 'READY';
+            document.getElementById('pass-status').classList.remove('pass-box');
+            // Clear verification status fields when READY is shown
+            document.getElementById('scan-data-value').textContent = '';
+            document.getElementById('scan-data-value').classList.remove('scanned-success');
+            document.getElementById('scan-status-value').textContent = '';
+            document.getElementById('scan-status-value').classList.remove('ok');
+            document.getElementById('part-code-status-value').textContent = '';
+            document.getElementById('part-code-status-value').classList.remove('ok');
+          }, 1000);
+
+          // Highlight the scanned data in green
+          scanDataValue.classList.add('scanned-success');
+
+          // Update scan quantity only for successful scans
+          const scanQty = document.getElementById('scan-qty');
+          scanQty.value = String(Number(scanQty.value) + 1).padStart(5, '0');
+        } else {
+          // Handle failed scan
+          document.getElementById('scan-status-value').textContent = 'NOT OK';
+          document.getElementById('scan-status-value').classList.remove('ok');
+          document.getElementById('part-code-status-value').textContent = 'NO MATCH';
+          document.getElementById('part-code-status-value').classList.remove('ok');
+          document.getElementById('pass-status').textContent = 'FAILED';
+          document.getElementById('pass-status').classList.remove('pass-box');
+          document.getElementById('pass-status').classList.add('failed');
+          document.getElementById('btn-scan-data').classList.add('failed');
+
+          // Play error sound on loop until blink finishes
+          const errorSound = document.getElementById('error-sound');
+          errorSound.loop = true;
+          errorSound.play();
+          setTimeout(() => {
+            errorSound.pause();
+            errorSound.currentTime = 0;
+          }, 6000); // Stop after 6 seconds
+
+          // Shake the PIN verification modal
+          const pinModal = document.getElementById('pin-modal');
+          pinModal.classList.add('shake');
+          setTimeout(() => pinModal.classList.remove('shake'), 500);
+
+          // Show red blink overlay
+          const blinkOverlay = document.getElementById('blink-overlay');
+          blinkOverlay.style.display = 'block';
+          setTimeout(() => blinkOverlay.style.display = 'none', 6000); // 2s * 3 = 6s
+
+          // Show PIN verification
+          showPinVerification().then((isVerified) => {
+            if (isVerified) {
+              // Clear the failed state after successful verification
+              document.getElementById('scan-status-value').textContent = '';
+              document.getElementById('part-code-status-value').textContent = '';
+              document.getElementById('pass-status').textContent = 'READY';
+              document.getElementById('pass-status').classList.remove('failed');
+            }
+          });
+
+          // Show notification for failed scan
+          showNotification('Scan does not match the part code. Please verify with PIN to continue.', 'error');
+        }
+        
+        // Always update timestamp
+        updateTimestamp();
+
+        console.log('Scan processing completed successfully');
+      } catch (error) {
+        console.error('Error handling scan:', error);
+        showNotification('Error processing scan. Please try again.', 'error');
+      } finally {
+        // Ensure UI is ready for next scan after a delay
+        setTimeout(() => {
+          // Don't clear scan data, just remove success highlight
+          document.getElementById('scan-data-value').classList.remove('scanned-success');
+          
+          // For failed scans, we don't reset the status here anymore
+          // The status will be cleared only after successful PIN verification
+        }, 200); // Remove success highlight after 0.2 seconds
+      }
+    }
+
+    // Update timestamp
+    function updateTimestamp() {
+      const now = new Date();
+      document.getElementById('date').value = now.toLocaleDateString('en-GB');
+      document.getElementById('time').value = now.toLocaleTimeString('en-GB');
+    }
+
+    // Scanner input handling with improved logic
+    let scanBuffer = '';
+    let scanTimeout;
+    let isScanning = false;
+
+    // Listen for keydown events to capture scanner input
+    document.addEventListener('keydown', function(e) {
+      console.log('Key detected:', e.key, 'Code:', e.code, 'Target:', e.target.tagName);
+      
+      // Ignore if focus is on any input element (including password fields and search boxes)
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        console.log('Ignoring key - focus is on input element');
+        return;
+      }
+
+      try {
+        // Handle Enter key - this signals end of scan
+        if (e.key === 'Enter' || e.code === 'Enter') {
+          console.log('Enter key detected - processing scan buffer:', scanBuffer);
+          e.preventDefault();
+          
+          // Clear any existing timeout
+          if (scanTimeout) {
+            clearTimeout(scanTimeout);
+            scanTimeout = null;
+          }
+          
+          // Process the buffer if it has content
+          if (scanBuffer.length > 0) {
+            const scannedCode = scanBuffer;
+            console.log('Processing scanned code:', scannedCode);
+            scanBuffer = ''; // Clear buffer
+            isScanning = false;
+
+            // Process the scan
+            try {
+              handleScan(scannedCode);
+            } catch (error) {
+              console.error('Error in handleScan:', error);
+              showNotification('Error processing scan. Please try again.', 'error');
+            }
+          } else {
+            console.log('Buffer is empty, ignoring Enter key');
+          }
+          return;
+        }
+
+        // Ignore special keys that aren't characters
+        if (e.key.length > 1 && e.key !== 'Enter') {
+          console.log('Ignoring special key:', e.key);
+          return;
+        }
+
+        // Start scanning mode
+        if (!isScanning) {
+          isScanning = true;
+          scanBuffer = '';
+          console.log('Started scanning mode');
+        }
+
+        // Add character to buffer
+        scanBuffer += e.key;
+        console.log('Buffer updated:', scanBuffer);
+
+        // Clear existing timeout
+        if (scanTimeout) {
+          clearTimeout(scanTimeout);
+        }
+
+        // Set timeout to auto-process if Enter is not received (fallback)
+        scanTimeout = setTimeout(() => {
+          console.log('Timeout reached - auto-processing buffer:', scanBuffer);
+          if (scanBuffer.length > 0) {
+            const scannedCode = scanBuffer;
+            scanBuffer = '';
+            isScanning = false;
+
+            try {
+              handleScan(scannedCode);
+            } catch (error) {
+              console.error('Error in handleScan (timeout):', error);
+              showNotification('Error processing scan. Please try again.', 'error');
+            }
+          }
+          scanTimeout = null;
+        }, 100); // 100ms timeout for scanner input completion
+
+      } catch (error) {
+        console.error('Error in keydown handler:', error);
+        scanBuffer = '';
+        isScanning = false;
+        if (scanTimeout) {
+          clearTimeout(scanTimeout);
+          scanTimeout = null;
+        }
+      }
+    });
+
+    // Helper function to show notifications
+    function showNotification(message, type = 'info') {
+      const notification = document.createElement('div');
+      notification.style.position = 'fixed';
+      notification.style.top = '20px';
+      notification.style.left = '50%';
+      notification.style.transform = 'translateX(-50%)';
+      notification.style.backgroundColor = type === 'error' ? '#ff3b30' : '#4CAF50';
+      notification.style.color = 'white';
+      notification.style.padding = '10px 20px';
+      notification.style.borderRadius = '5px';
+      notification.style.zIndex = '9999';
+      notification.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+      notification.textContent = message;
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        if (document.body.contains(notification)) {
+          document.body.removeChild(notification);
+        }
+      }, 2000);
+    }
+
+    // Handle logo image loading
+    function initializeLogo() {
+      const logoImg = document.getElementById('logo-img');
+      const logoText = document.getElementById('logo-text');
+
+      logoImg.addEventListener('load', function() {
+        // Show image and hide text when image loads successfully
+        logoImg.style.display = 'block';
+        logoText.style.display = 'none';
+      });
+
+      logoImg.addEventListener('error', function() {
+        // Hide image and show text if image fails to load
+        logoImg.style.display = 'none';
+        logoText.style.display = 'block';
+      });
+    }
+
+
+
+    // Function to show PIN verification modal
+    async function showPinVerification() {
+      return new Promise((resolve) => {
+        const pinModal = document.getElementById('pin-modal');
+        const pinInput = document.getElementById('pin-input');
+        const pinError = document.getElementById('pin-error');
+        const verifyBtn = document.getElementById('verify-pin-btn');
+        
+        // Clear previous state but keep error states
+        pinInput.value = '';
+        pinError.textContent = '';
+        
+        // Show the modal
+        pinModal.style.zIndex = '9999'; // Ensure modal is on top
+        setTimeout(() => {
+          pinModal.style.display = 'block';
+        }, 100);
+        
+        // Handle Enter key in PIN input
+        const handleKeyPress = (e) => {
+          if (e.key === 'Enter') {
+            verifyPin();
+          }
+        };
+        
+        // Verify PIN function
+        const verifyPin = async () => {
+          const pin = pinInput.value.trim();
+          try {
+            // Read the PIN from the file
+            const response = await fetch('mod-base.txt');
+            const savedPin = (await response.text()).trim();
+            
+            if (pin === atob(savedPin)) {
+              // On successful verification, clear the failed states
+              document.getElementById('scan-data-value').textContent = '';
+              document.getElementById('scan-data-value').classList.remove('scanned-success');
+              document.getElementById('scan-status-value').textContent = '';
+              document.getElementById('scan-status-value').classList.remove('ok');
+              document.getElementById('part-code-status-value').textContent = '';
+              document.getElementById('part-code-status-value').classList.remove('ok');
+              document.getElementById('pass-status').textContent = 'READY';
+              document.getElementById('pass-status').classList.remove('failed');
+              document.getElementById('btn-scan-data').classList.remove('failed');
+
+              pinModal.style.display = 'none';
+              pinInput.removeEventListener('keypress', handleKeyPress);
+              verifyBtn.removeEventListener('click', verifyPin);
+              resolve(true);
+            } else {
+              pinError.textContent = 'Invalid PIN. Please try again.';
+              pinInput.value = '';
+              pinInput.focus();
+              partsModal.style.display = 'block'; // Show parts modal again
+            }
+          } catch (error) {
+            console.error('Error verifying PIN:', error);
+            pinError.textContent = 'Error verifying PIN. Please try again.';
+          }
+        };
+        
+        // Set up event listeners
+        pinInput.addEventListener('keypress', handleKeyPress);
+        verifyBtn.addEventListener('click', verifyPin);
+      });
+    }
+
+    // Show scanner name modal and return the entered name (or null on cancel)
+    async function showScannerNameModal() {
+      console.log('showScannerNameModal: opening modal');
+      return new Promise((resolve) => {
+        const modal = document.getElementById('scanner-modal');
+        const input = document.getElementById('scanner-input');
+        const error = document.getElementById('scanner-error');
+        const saveBtn = document.getElementById('save-scanner-btn');
+        const cancelBtn = document.getElementById('cancel-scanner-btn');
+
+        // Reset state
+        input.value = document.getElementById('scan-by')?.value || '';
+        console.log('showScannerNameModal: prefill current name =', input.value);
+        error.textContent = '';
+        modal.style.display = 'block';
+        input.focus();
+
+        const close = (result = null) => {
+          console.log('showScannerNameModal: closing modal with result =', result);
+          modal.style.display = 'none';
+          input.removeEventListener('keypress', onKey);
+          saveBtn.removeEventListener('click', onSave);
+          cancelBtn.removeEventListener('click', onCancel);
+          modal.removeEventListener('click', onOutsideClick);
+          resolve(result);
+        };
+
+        const onSave = () => {
+          const name = input.value.trim();
+          console.log('showScannerNameModal: save attempt with name =', name);
+          if (!name) {
+            error.textContent = 'Name cannot be empty.';
+            input.focus();
+            return;
+          }
+          close(name);
+        };
+
+        const onCancel = () => {
+          console.log('showScannerNameModal: canceled');
+          close(null);
+        };
+
+        const onKey = (e) => {
+          if (e.key === 'Enter') onSave();
+          if (e.key === 'Escape') onCancel();
+        };
+
+        const onOutsideClick = (e) => {
+          if (e.target === modal) onCancel();
+        };
+
+        input.addEventListener('keypress', onKey);
+        saveBtn.addEventListener('click', onSave);
+        cancelBtn.addEventListener('click', onCancel);
+        modal.addEventListener('click', onOutsideClick);
+      });
+    }
+
+    // Function to get all used licenses
+    function getAllUsedLicenses() {
+      try {
+        if (!fs.existsSync('used-license.txt')) {
+          fs.writeFileSync('used-license.txt', '[]', 'utf8');
+          return [];
+        }
+        
+        let content = fs.readFileSync('used-license.txt', 'utf8').trim();
+        
+        // Handle empty file
+        if (!content) {
+          fs.writeFileSync('used-license.txt', '[]', 'utf8');
+          return [];
+        }
+        
+        // Fix common JSON formatting issues
+        content = content.trim();
+        
+        // Ensure the content is a valid JSON array
+        if (!content.startsWith('[')) {
+          content = '[' + content;
+        }
+        if (!content.endsWith(']')) {
+          content = content + ']';
+        }
+        
+        // Remove trailing commas before closing bracket/brace
+  content = content.replaceAll(/,\s*([}\]])/g, '$1');
+        
+        try {
+          const parsed = JSON.parse(content);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+          console.warn('Failed to parse used licenses, resetting file', e);
+          try {
+            fs.writeFileSync('used-license.txt', '[]', 'utf8');
+          } catch (error_) {
+            console.error('Failed to write reset used-license.txt:', error_);
+          }
+          return [];
+        }
+      } catch (error) {
+        console.error('Error reading used licenses:', error);
+        alert('Error reading used licenses. Please check file permissions.');
+        try {
+          fs.writeFileSync('used-license.txt', '[]', 'utf8');
+        } catch (e) {
+          console.error('Failed to reset used-license.txt:', e);
+          alert('Failed to reset used-license.txt.');
+        }
+        return [];
+      }
+    }
+
+    // Function to check if license key has been used before
+    function isLicenseUsed(licenseKey) {
+      if (!licenseKey) return true; // Treat empty key as used
+      
+      const usedLicenses = getAllUsedLicenses();
+      
+      // Check both the original key and its base64 version
+      if (usedLicenses.includes(licenseKey)) {
+        return true;
+      }
+      
+      // If it's a date string, check its base64 version too
+      if (/^\d{2}-\d{2}-\d{4}$/.test(licenseKey)) {
+        try {
+          const base64Key = btoa(licenseKey);
+          return usedLicenses.includes(base64Key);
+        } catch (e) {
+          console.error('Error encoding license key:', e);
+        }
+      }
+      
+      return false;
+    }
+
+    // Function to mark a license key as used (only adds to used-license.txt, never modifies license.txt)
+    function markLicenseAsUsed(licenseKey) {
+      if (!licenseKey) return;
+      
+      try {
+        // Always encode the key to base64 for storage
+        let keyToStore = /^\d{2}-\d{2}-\d{4}$/.test(licenseKey) ? btoa(licenseKey) : licenseKey;
+        
+        const usedLicenses = getAllUsedLicenses();
+        if (!usedLicenses.includes(keyToStore)) {
+          usedLicenses.push(keyToStore);
+          fs.writeFileSync('used-license.txt', JSON.stringify(usedLicenses, null, 2), 'utf8');
+          console.log('License key added to used licenses');
+        }
+      } catch (error) {
+        console.error('Error saving used license:', error);
+      }
+    }
+    
+    // Function to set the current license (only updates license.txt with date string)
+    function setCurrentLicense(licenseDateStr) {
+      if (!/^\d{2}-\d{2}-\d{4}$/.test(licenseDateStr)) {
+        console.error('Invalid date format for license');
+        return false;
+      }
+      
+      try {
+        fs.writeFileSync('license.txt', licenseDateStr, 'utf8');
+        console.log('Current license date set to:', licenseDateStr);
+        return true;
+      } catch (error) {
+        console.error('Error setting current license:', error);
+        return false;
+      }
+    }
+
+    // Function to validate license format
+    function isValidLicenseFormat(licenseKey) {
+      if (!licenseKey) return false;
+      const vowels = 'aeiouAEIOU';
+      return licenseKey.length > 0 && 
+             vowels.includes(licenseKey[0]) && 
+             vowels.includes(licenseKey[licenseKey.length - 1]);
+    }
+    
+    // Function to check if a string is valid base64
+    function isBase64(str) {
+      try {
+        return btoa(atob(str)) === str;
+      } catch (err) {
+  console.error('Error validating base64 string:', err);
+  alert('Error validating base64 string.');
+  return false;
+      }
+    }
+    
+    // Function to parse license date from either base64 or plain text
+    function parseLicenseContent(licenseContent) {
+      try {
+        // First try to decode as base64
+        try {
+          const decoded = atob(licenseContent);
+          // If it's in the expected date format (DD-MM-YYYY)
+          if (/^\d{2}-\d{2}-\d{4}$/.test(decoded)) {
+            return decoded;
+          }
+        } catch (e) {
+          // Decoding failed or input wasn't base64 — log and continue to plain-text check
+          console.warn('Not a valid base64 string or decode failed:', e);
+        }
+        
+        // If not base64 or not in expected format, try as plain text
+        if (/^\d{2}-\d{2}-\d{4}$/.test(licenseContent)) {
+          return licenseContent;
+        }
+        
+        // If we get here, the format is invalid
+        throw new Error('Invalid license format. Expected DD-MM-YYYY or base64 encoded date.');
+      } catch (error) {
+  console.error('Error parsing license:', error);
+  alert('Error parsing license. Please check the format.');
+  throw error;
+      }
+    }
+
+    // License check function
+    function checkLicense() {
+      // Check if this is a license validation attempt with a new key
+  const urlParams = new URLSearchParams(globalThis.location.search);
+      const newLicenseKey = urlParams.get('license');
+      
+      // Function to show license modal and get new license
+      const showLicenseModal = (message = '') => {
+        return new Promise((resolve) => {
+          const modal = document.getElementById('license-modal');
+          const input = document.getElementById('license-key-input');
+          const error = document.getElementById('license-error');
+          const btn = document.getElementById('verify-license-btn');
+          
+          if (!modal || !input || !error || !btn) {
+            console.error('License modal elements not found');
+            resolve(false);
+            return;
+          }
+          
+          // Clear any previous messages
+          error.textContent = message || '';
+          input.value = '';
+          modal.style.display = 'block';
+          input.focus();
+          
+          const verify = () => {
+            const key = input.value.trim();
+            
+            if (!isValidLicenseFormat(key)) {
+              error.textContent = 'Invalid license key. Please check your key and try again.';
+              input.value = '';
+              input.focus();
+              return;
+            }
+            
+            if (isLicenseUsed(key)) {
+              error.textContent = 'This license key has already been used. Please enter a different key.';
+              input.value = '';
+              input.focus();
+              return;
+            }
+            
+            // If we get here, the license is valid and unused
+            // Mark as used and grant a 7-day extension by writing expiry date
+            markLicenseAsUsed(key);
+            try {
+              const now = new Date();
+              const expire = new Date(now);
+              expire.setDate(expire.getDate() + 7);
+              const dd = String(expire.getDate()).padStart(2, '0');
+              const mm = String(expire.getMonth() + 1).padStart(2, '0');
+              const yyyy = expire.getFullYear();
+              const expiryStr = `${dd}-${mm}-${yyyy}`;
+              fs.writeFileSync('license.txt', btoa(expiryStr), 'utf8');
+              console.log('License accepted via modal. Temporary expiry set to:', expiryStr);
+            } catch (e) {
+              console.error('Failed to write license expiry from modal:', e);
+            }
+            modal.style.display = 'none';
+            resolve(true);
+          };
+          
+          // Remove any existing event listeners to prevent duplicates
+          const newBtn = btn.cloneNode(true);
+          btn.parentNode.replaceChild(newBtn, btn);
+          newBtn.addEventListener('click', verify);
+          
+          // Handle Enter key press
+          input.onkeypress = (e) => {
+            if (e.key === 'Enter') {
+              verify();
+            }
+          };
+        });
+      };
+
+      // If we have a new license key from URL, validate it
+      if (newLicenseKey) {
+        if (isLicenseUsed(newLicenseKey)) {
+          console.log('This license key has already been used');
+          return showLicenseModal('This license key has already been used. Please enter a different key.');
+        }
+        // If not used, mark it as used and grant a 7-day extension by writing an expiry date
+        markLicenseAsUsed(newLicenseKey);
+        try {
+          const now = new Date();
+          const expire = new Date(now);
+          expire.setDate(expire.getDate() + 7); // 7-day extension
+          const dd = String(expire.getDate()).padStart(2, '0');
+          const mm = String(expire.getMonth() + 1).padStart(2, '0');
+          const yyyy = expire.getFullYear();
+          const expiryStr = `${dd}-${mm}-${yyyy}`;
+          // Store as base64 encoded date so parseLicenseContent will decode it
+          fs.writeFileSync('license.txt', btoa(expiryStr), 'utf8');
+          console.log('New license accepted. Temporary expiry set to:', expiryStr);
+        } catch (e) {
+          console.error('Failed to write new license expiry:', e);
+          // Fallback: write the raw key if date write fails
+          try { fs.writeFileSync('license.txt', newLicenseKey, 'utf8'); } catch (err) { console.error('Fallback write also failed:', err); }
+        }
+      }
+      
+      try {
+        // Check if we have a valid license file
+        if (!fs.existsSync('license.txt')) {
+          return showLicenseModal('No license found. Please enter a valid license key.');
+        }
+        
+        const licenseContent = fs.readFileSync('license.txt', 'utf8').trim();
+        
+        if (!licenseContent) {
+          return showLicenseModal('License file is empty. Please enter a valid license key.');
+        }
+        
+        // Check if the license has been used before
+        if (isLicenseUsed(licenseContent)) {
+          console.log('Stored license key has been used before');
+          return showLicenseModal('The current license key has already been used. Please enter a new license key.');
+        }
+        
+        // Parse the license content (handles both base64 and plain text)
+        const licenseDateStr = parseLicenseContent(licenseContent);
+        
+        // Don't mark the current license as used, only validate it
+        // Parse the date parts for validation
+        const [day, month, year] = licenseDateStr.split('-');
+        const licenseDate = new Date(`${year}-${month}-${day}`);
+        const currentDate = new Date();
+        currentDate.setHours(0, 0, 0, 0);
+        licenseDate.setHours(0, 0, 0, 0);
+        
+        // Log license validity information
+        console.log(`License valid until: ${day}-${month}-${year}`);
+        
+        if (currentDate > licenseDate) {
+          console.log(`License expired. License was valid until: ${day}-${month}-${year}`);
+          return showLicenseModal(`License expired on ${day}-${month}-${year}. Please enter a new license key.`);
+        }
+        
+        console.log('License valid');
+        return Promise.resolve(true);
+      } catch (error) {
+        console.error('License check failed:', error);
+        return Promise.resolve(false);
+      }
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+      const licenseValid = checkLicense();
+      if (!licenseValid) {
+        document.getElementById('license-invalid-overlay').style.display = 'block';
+        return; // Stop initialization
+      }
+      // Initialize logo
+      initializeLogo();
+
+      // Make 'Scan By' clickable to set scanner name (with part selection check)
+      const scanByInput = document.getElementById('scan-by');
+      scanByInput.addEventListener('click', async (event) => {
+        const allowed = await checkPartSelectedBeforeAction();
+        if (!allowed) {
+          event.preventDefault();
+          return;
+        }
+        console.log('Scan By field clicked');
+        const name = await showScannerNameModal();
+        console.log('Scanner name modal resolved with:', name);
+        if (name && name.trim()) {
+          const trimmed = name.trim();
+          scanByInput.value = trimmed;
+          showNotification(`Scan By set to ${trimmed}`, 'info');
+        }
+      });
+
+      // Modal functionality
+      const modal = document.getElementById('parts-modal');
+      const closeBtn = modal.querySelector('.close-modal');
+      const searchBox = modal.querySelector('.search-box');
+      const partsList = modal.querySelector('.parts-list');
+
+      function showPartsModal() {
+        if (masterData.length === 0) {
+          alert('No master data available. Please check the master.xlsx file.');
+          return;
+        }
+        modal.style.display = 'block';
+        modal.style.zIndex = '1000';
+        searchBox.focus();
+        renderPartsList(masterData);
+      }
+
+      function hidePartsModal() {
+        modal.style.display = 'none';
+        searchBox.value = '';
+      }
+
+      function renderPartsList(parts) {
+        if (parts.length === 0) {
+          partsList.innerHTML = '<div class="no-results">No matching parts found</div>';
+          return;
+        }
+
+        partsList.innerHTML = parts.map((item, index) => `
+          <li class="part-item" data-part-code="${item.PartCode}">
+            <div class="part-info">
+              <span class="part-code">${item.PartCode}</span>
+              <span class="part-name">${item.PartName || 'N/A'}</span>
+              ${item.Customer ? `<div class="part-customer">Customer: ${item.Customer}</div>` : ''}
+            </div>
+          </li>
+        `).join('');
+      }
+
+      function filterParts(searchTerm) {
+        const filtered = masterData.filter(item => {
+          const search = searchTerm.toLowerCase();
+          return item.PartCode.toLowerCase().includes(search) || 
+                 item.PartName.toLowerCase().includes(search) ||
+                 item.Customer.toLowerCase().includes(search);
+        });
+        renderPartsList(filtered);
+      }
+
+      // Function to show PIN verification for master list (uses PIN + 5)
+      async function showMasterListPinVerification() {
+        return new Promise((resolve) => {
+          const pinModal = document.getElementById('pin-modal');
+          const pinInput = document.getElementById('pin-input');
+          const pinError = document.getElementById('pin-error');
+          const verifyBtn = document.getElementById('verify-pin-btn');
+          const partsModal = document.getElementById('parts-modal');
+
+          // Clear previous state but keep error states
+          pinInput.value = '';
+          pinError.textContent = '';
+
+          // Hide parts modal to ensure pin modal is fully accessible
+          partsModal.style.display = 'none';
+          pinModal.style.zIndex = '9999';
+
+          // Show the modal after a brief delay to ensure rendering
+          setTimeout(() => {
+            pinModal.style.display = 'block';
+          }, 100);
+
+          // Handle Enter key in PIN input
+          const handleKeyPress = (e) => {
+            if (e.key === 'Enter') {
+              verifyPin();
+            }
+          };
+
+          // Verify PIN function
+          const verifyPin = async () => {
+            const pin = pinInput.value.trim();
+            try {
+              // Read the PIN from the file
+              const response = await fetch('mod-base.txt');
+              const savedPin = (await response.text()).trim();
+              const basePin = atob(savedPin);
+              const expectedPin = (Number.parseInt(basePin, 10) + 5).toString();
+
+            if (pin === expectedPin) {
+              pinModal.style.display = 'none';
+              pinInput.removeEventListener('keypress', handleKeyPress);
+              verifyBtn.removeEventListener('click', verifyPin);
+              resolve(true);
+            } else {
+                pinError.textContent = 'Invalid PIN. Please try again.';
+                pinInput.value = '';
+                pinInput.focus();
+              }
+            } catch (error) {
+              console.error('Error verifying PIN:', error);
+              pinError.textContent = 'Error verifying PIN. Please try again.';
+            }
+          };
+
+          // Set up event listeners
+          pinInput.addEventListener('keypress', handleKeyPress);
+          verifyBtn.addEventListener('click', verifyPin);
+        });
+      }
+
+      // Event Listeners
+      closeBtn.addEventListener('click', hidePartsModal);
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) hidePartsModal();
+      });
+
+      searchBox.addEventListener('input', (e) => {
+        filterParts(e.target.value);
+      });
+
+      partsList.addEventListener('click', async (e) => {
+        const partItem = e.target.closest('.part-item');
+        if (partItem) {
+          // Show PIN verification before updating the part
+          const verified = await showMasterListPinVerification();
+          if (!verified) return;
+          
+          const partCode = partItem.dataset.partCode;
+          const partDetails = findPartDetails(partCode);
+          
+          // Update only the reference part details
+          document.getElementById('part-code').value = partCode;
+          document.getElementById('part-name').value = partDetails.PartName || '';
+          document.getElementById('customer').value = partDetails.Customer || '';
+          
+          // Reset scan data display (don't clear text, just remove success highlight)
+          document.getElementById('scan-data-value').classList.remove('scanned-success');
+          document.getElementById('scan-status-value').textContent = '';
+          document.getElementById('scan-status-value').classList.remove('ok');
+          document.getElementById('part-code-status-value').textContent = '';
+          document.getElementById('part-code-status-value').classList.remove('ok');
+          document.getElementById('pass-status').textContent = 'READY';
+          document.getElementById('pass-status').classList.remove('failed');
+          document.getElementById('pass-status').classList.remove('pass-box');
+          
+          hidePartsModal();
+        }
+      });
+
+      // Handle buttons
+      document.getElementById('btn-master').addEventListener('click', showPartsModal);
+      document.getElementById('btn-scan-data').addEventListener('click', function() {
+        const manualCode = prompt('Enter part code:');
+        if (manualCode) {
+          // Clean manual entry just in case
+          const cleanedCode = manualCode.replace(/Enter$/, '');
+          handleScan(cleanedCode);
+        }
+      });
+      document.getElementById('btn-history').addEventListener('click', async function() {
+        // Load today's scan logs from file
+        const todaysLogs = await loadTodaysScanLogs();
+
+        // History modal content
+        const historyHtml = `
+          ${todaysLogs.length === 0 ? '<div style="text-align: center; color: yellow; padding: 20px;">No scan history available for today</div>' : ''}
+          <div class="modal-header">
+            <h2 class="modal-title">Today's Scan History</h2>
+            <button class="close-modal">&times;</button>
+          </div>
+          <div class="scan-logs">
+            <table class="logs-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Time</th>
+                  <th>Part Code</th>
+                  <th>Part Name</th>
+                  <th>Customer</th>
+                  <th>Scanned Code</th>
+                  <th>Scanner</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${todaysLogs.map(log => `
+                  <tr class="${log.matchStatus === 'MATCHED' ? 'match' : 'no-match'}">
+                    <td>${log.timestamp.toLocaleDateString('en-GB')}</td>
+                    <td>${log.timestamp.toLocaleTimeString('en-GB')}</td>
+                    <td>${log.partCode}</td>
+                    <td>${log.partName}</td>
+                    <td>${log.customer}</td>
+                    <td>${log.scannedCode}</td>
+                    <td>${log.scannerInfo}</td>
+                    <td>${log.matchStatus}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+
+        const historyModal = document.createElement('div');
+        historyModal.className = 'modal';
+        historyModal.innerHTML = `
+          <div class="modal-content">
+            ${historyHtml}
+          </div>
+        `;
+
+        document.body.appendChild(historyModal);
+        historyModal.style.display = 'block';
+
+        // Handle close button and outside click
+        const closeBtn = historyModal.querySelector('.close-modal');
+        closeBtn.addEventListener('click', () => {
+          document.body.removeChild(historyModal);
+        });
+        historyModal.addEventListener('click', (e) => {
+          if (e.target === historyModal) {
+            document.body.removeChild(historyModal);
+          }
+        });
+
+        // Handle export button - export today's logs
+        const exportBtn = historyModal.querySelector('#export-logs');
+        if (exportBtn) {
+          exportBtn.addEventListener('click', async () => {
+            if (todaysLogs.length === 0) {
+              showNotification('No logs to export for today', 'error');
+              return;
+            }
+
+            // Prepare today's logs for export
+            const logsToExport = todaysLogs.map(log => ({
+              'Date': log.timestamp.toLocaleDateString('en-GB'),
+              'Time': log.timestamp.toLocaleTimeString('en-GB'),
+              'Part Code': log.partCode,
+              'Part Name': log.partName,
+              'Customer': log.customer,
+              'Scanned Code': log.scannedCode,
+              'Scanner': log.scannerInfo,
+              'Status': log.matchStatus
+            }));
+
+            // Sort by date and time descending (newest first)
+            logsToExport.sort((a, b) => {
+              const dateA = new Date(a['Date'].split('/').reverse().join('-') + ' ' + a['Time']);
+              const dateB = new Date(b['Date'].split('/').reverse().join('-') + ' ' + b['Time']);
+              return dateB - dateA;
+            });
+
+            try {
+              const result = await ipcRenderer.invoke('write-logs', logsToExport);
+              console.log(`Successfully exported ${logsToExport.length} today's logs to ${result.filePath}`);
+              showNotification(`Successfully exported ${logsToExport.length} today's scan logs`, 'info');
+            } catch (error) {
+              console.error('Error exporting today\'s logs:', error);
+              showNotification('Error exporting logs. Please try again.', 'error');
+            }
+          });
+        }
+      });
+
+      // Initialize data and timestamp
+      loadMasterData();
+      updateTimestamp();
+
+      // New code to enforce initial blank and red highlight on required fields and show popup on scan or click if no part selected
+      function markRequiredFields() {
+        const partCodeInput = document.getElementById('part-code');
+        const partNameInput = document.getElementById('part-name');
+        const customerInput = document.getElementById('customer');
+        const scanByInput = document.getElementById('scan-by');
+
+        // If partCode is empty, mark all required inputs as required (red border) and blank
+  if (partCodeInput.value.trim() === '') {
+          partCodeInput.value = '';
+          partNameInput.value = '';
+          customerInput.value = '';
+          scanByInput.value = '';
+
+          partCodeInput.classList.add('required');
+          partNameInput.classList.add('required');
+          customerInput.classList.add('required');
+          scanByInput.classList.add('required');
+        } else {
+          partCodeInput.classList.remove('required');
+          partNameInput.classList.remove('required');
+          customerInput.classList.remove('required');
+          scanByInput.classList.remove('required');
+        }
+      }
+
+      // Open master modal if part code is not selected
+      async function checkPartSelectedBeforeAction() {
+        const partCodeInput = document.getElementById('part-code');
+        if (!partCodeInput.value.trim()) {
+          // Open master modal
+          document.getElementById('btn-master').click();
+          return false;
+        }
+        return true;
+      }
+
+      // Override scan button click to check part selection first
+      document.getElementById('btn-scan-data').addEventListener('click', async function(event) {
+        const allowed = await checkPartSelectedBeforeAction();
+        if (!allowed) {
+          event.preventDefault();
+          return;
+        }
+        // If allowed, prompt for manual code input as before
+        const manualCode = prompt('Enter part code:');
+        if (manualCode) {
+          const cleanedCode = manualCode.replace(/Enter$/, '');
+          handleScan(cleanedCode);
+        }
+      });
+
+      // Override scan input via keyboard (handleScan) to check part selection first
+      const originalHandleScan = handleScan;
+      handleScan = async function(scannedCode) {
+        const allowed = await checkPartSelectedBeforeAction();
+        if (!allowed) {
+          return;
+        }
+        originalHandleScan(scannedCode);
+      };
+
+
+
+      // On initial load, clear part code, part name, customer, scan by and mark required fields red
+      function clearInitialFields() {
+        document.getElementById('part-code').value = '';
+        document.getElementById('part-name').value = '';
+        document.getElementById('customer').value = '';
+        document.getElementById('scan-by').value = 'XXXXX';
+        document.getElementById('scan-data-value').textContent = '';
+        document.getElementById('scan-status-value').textContent = '';
+        document.getElementById('scan-status-value').classList.remove('ok');
+        document.getElementById('part-code-status-value').textContent = '';
+        document.getElementById('part-code-status-value').classList.remove('ok');
+        document.getElementById('pass-status').textContent = 'READY';
+        document.getElementById('pass-status').classList.remove('failed', 'pass-box');
+        document.getElementById('scan-qty').value = '00000';
+
+        markRequiredFields();
+      }
+
+      // Call clearInitialFields after master data is loaded
+      const originalLoadMasterData = loadMasterData;
+      loadMasterData = async function() {
+        await originalLoadMasterData();
+        clearInitialFields();
+        // Initially open master modal to select part code first, if data loaded
+        if (masterData.length > 0) {
+          document.getElementById('btn-master').click();
+        }
+      };
+
+    });
+  </script>
+</head>
+<body>
+  <div id="app-container" class="container">
+    <header id="main-header" class="header">
+      <div id="company-logo" class="logo">
+        <img id="logo-img" src="https://gadglobal.co.in/wp-content/uploads/2020/10/1WhatsApp-Image-2020-10-09-at-12.38.18-PM-e1602228066541.jpeg" alt="GAD Logo">
+        <span id="logo-text" class="logo-text">GAD</span>
+      </div>
+      <h1 id="page-title">QR-Scanning System</h1>
+      <nav id="nav-buttons" class="buttons">
+        <button id="btn-master">Master</button>
+        <button id="btn-history">History</button>
+      </nav>
+    </header>
+
+    <main id="main-content" class="main">
+      <section id="input-section" class="input-section">
+        <h2 id="input-title">Input Data</h2>
+
+        <div id="part-code-row" class="row">
+          <label for="part-code">Part Code</label>
+          <input type="text" id="part-code" value="" readonly />
+        </div>
+
+        <div id="part-name-row" class="row">
+          <label for="part-name">Part Name</label>
+          <input type="text" id="part-name" value="" readonly />
+        </div>
+
+        <div id="customer-row" class="row">
+          <label for="customer">Customer</label>
+          <input type="text" id="customer" value="" readonly />
+        </div>
+
+        <div id="scan-by-row" class="row">
+          <label for="scan-by">Scan By</label>
+          <input type="text" id="scan-by" value="" readonly title="Click to set scanner name" style="cursor: pointer;" />
+        </div>
+
+        <div id="verification-section" class="verification">
+          <h3 id="verification-title">Verification Status</h3>
+
+          <div id="scan-data-row" class="verify-row">
+            <button id="btn-scan-data">Scan Data</button>
+            <div id="scan-data-value" class="value"></div>
+          </div>
+
+          <div id="scan-status-row" class="verify-row">
+            <button id="btn-scan-status">Scan Status</button>
+            <div id="scan-status-value" class="value"></div>
+          </div>
+
+          <div id="part-code-status-row" class="verify-row">
+            <button id="btn-part-code-status">Part Code Status</button>
+            <div id="part-code-status-value" class="value"></div>
+          </div>
+        </div>
+      </section>
+
+      <aside id="status-section" class="right-section">
+        <div id="scan-qty-box" class="info-box">
+          <label for="scan-qty">Scan Qty</label>
+          <input type="text" id="scan-qty" value="00000" readonly />
+        </div>
+
+        <div id="date-box" class="info-box">
+          <label for="date">Date</label>
+          <input type="text" id="date" value="13-09-2025" readonly />
+        </div>
+
+        <div id="time-box" class="info-box">
+          <label for="time">Time</label>
+          <input type="text" id="time" value="15:44:22" readonly />
+        </div>
+
+        <div id="overall-status" class="status">Over All Scan Status</div>
+        <div style="flex: 1; display: flex; flex-direction: column; margin-top: 10px;">
+          <div id="pass-status">READY</div>
+        </div>
+  </aside>
+    </main>
+  </div>
+
+  <audio id="error-sound" src="error.mp3" preload="auto"></audio>
+
+  <!-- PIN Verification Modal -->
+  <div id="pin-modal" class="modal" style="z-index: 9999;">
+    <div class="modal-content" style="max-width: 500px;">
+      <div id="blink-overlay" class="blink-overlay"></div>
+      <div class="modal-header">
+        <h2 class="modal-title">Verification Required</h2>
+      </div>
+      <div style="padding: 20px; text-align: center;">
+        <p style="margin-bottom: 20px; font-size: 16px;">Please enter the security PIN to continue:</p>
+        <input type="password" id="pin-input" class="search-box" style="font-size: 24px; text-align: center; letter-spacing: 5px;" maxlength="6" tabindex="0" />
+        <p id="pin-error" style="color: #ff6b6b; min-height: 20px; margin: 10px 0 0 0;"></p>
+        <div style="margin-top: 30px;">
+          <button id="verify-pin-btn" style="padding: 10px 30px; font-size: 16px; background-color: #3399ff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Verify PIN
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scanner Name Modal -->
+  <div id="scanner-modal" class="modal" style="z-index: 2000;" role="dialog" aria-modal="true" aria-labelledby="scanner-modal-title">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-header">
+        <h2 id="scanner-modal-title" class="modal-title">Set Scanner Name</h2>
+      </div>
+      <div style="padding: 20px; text-align: center;">
+        <p style="margin-bottom: 20px; font-size: 16px;">Enter the scanning person's name:</p>
+        <input type="text" id="scanner-input" class="search-box" style="font-size: 22px; text-align: center;" maxlength="50" />
+        <p id="scanner-error" style="color: #ff6b6b; min-height: 20px; margin: 10px 0 0 0;"></p>
+        <div style="margin-top: 30px; display: flex; gap: 10px; justify-content: center;">
+          <button id="save-scanner-btn" style="padding: 10px 24px; font-size: 16px; background-color: #3399ff; color: white; border: none; border-radius: 4px; cursor: pointer;">Save</button>
+          <button id="cancel-scanner-btn" style="padding: 10px 24px; font-size: 16px; background-color: #1F4E79; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Parts List Modal -->
+  <div id="parts-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title">Master Parts List</h2>
+        <button class="close-modal">&times;</button>
+      </div>
+      <input type="text" class="search-box" placeholder="Search by Part Code or Name..." />
+      <ul class="parts-list">
+        <!-- Parts will be populated here -->
+      </ul>
+    </div>
+  </div>
+
+  <!-- License Check Modal -->
+  <div id="license-modal" class="modal" style="z-index: 10000;">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-header">
+        <h2 class="modal-title">License Verification</h2>
+      </div>
+      <div style="padding: 20px; text-align: center;">
+        <p style="margin-bottom: 20px; font-size: 16px;">Your license has expired. Please enter the license key to continue:</p>
+        <input type="text" id="license-key-input" class="search-box" style="font-size: 24px; text-align: center;" maxlength="50" tabindex="0" />
+        <p id="license-error" style="color: #ff6b6b; min-height: 20px; margin: 10px 0 0 0;"></p>
+        <div style="margin-top: 30px;">
+          <button id="verify-license-btn" style="padding: 10px 30px; font-size: 16px; background-color: #0056b3; color: #fff; border: none; border-radius: 4px; cursor: pointer;">
+            Verify License
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- License Invalid Overlay -->
+  <div id="license-invalid-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.8); z-index: 10001; color: white; text-align: center; padding-top: 20vh; font-size: 24px;">
+    License expired or invalid. Please contact support to renew your license.
+  </div>
+
+  </body>
+</html>
