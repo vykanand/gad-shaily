@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GAD QR-Scanning System</title>
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #001D4A;
+            color: white;
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .container {
+            flex: 1;
+            margin: 0;
+            padding: 20px;
+            background-color: #003366;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            color: yellow;
+            margin: 0;
+        }
+
+        .logo {
+            font-size: 30px;
+            font-weight: bold;
+            color: #ccc;
+            background: radial-gradient(circle, red 10%, black 50%);
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .buttons button {
+            background-color: #3399ff;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .main {
+            display: flex;
+            margin-top: 20px;
+            flex: 1;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .input-section {
+            background-color: #0070C0;
+            border-radius: 15px;
+            padding: 20px;
+            flex: 2;
+            min-width: 300px;
+        }
+
+        .input-section h2 {
+            color: yellow;
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+
+        .row {
+            display: flex;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+
+        .row label {
+            width: 120px;
+            font-weight: bold;
+        }
+
+        .row input {
+            flex: 1;
+            padding: 5px;
+            background-color: #003366;
+            border: none;
+            color: white;
+            font-weight: bold;
+        }
+
+        .verification {
+            margin-top: 20px;
+        }
+
+        .verification h3 {
+            color: yellow;
+            margin-bottom: 10px;
+        }
+
+        .verify-row {
+            display: flex;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+
+        .verify-row button {
+            background-color: #1F4E79;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        .verify-row .value {
+            background-color: #003366;
+            padding: 8px 12px;
+            color: white;
+            font-weight: bold;
+        }
+
+        .ok {
+            background-color: #00FF99;
+            color: black;
+            font-weight: bold;
+        }
+
+        .right-section {
+            background-color: #001d4a;
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .right-section .info-box {
+            background-color: #0070C0;
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .info-box label {
+            display: block;
+            font-size: 14px;
+        }
+
+        .info-box input {
+            width: 80px;
+            padding: 5px;
+            font-weight: bold;
+            background-color: #003366;
+            color: white;
+            border: none;
+        }
+
+        .status {
+            margin-top: 20px;
+            color: yellow;
+        }
+
+        .pass-box {
+            background-color: limegreen;
+            color: black;
+            font-size: 36px;
+            font-weight: bold;
+            padding: 30px 0;
+            margin-top: 10px;
+            border-radius: 8px;
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                text-align: center;
+                gap: 15px;
+            }
+
+            .main {
+                flex-direction: column;
+            }
+
+            .input-section,
+            .right-section {
+                width: 100%;
+            }
+
+            .row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 5px;
+            }
+
+            .row label {
+                width: 100%;
+            }
+
+            .row input {
+                width: 100%;
+            }
+
+            .verify-row {
+                flex-direction: column;
+                gap: 5px;
+            }
+
+            .verify-row button {
+                width: 100%;
+                margin-right: 0;
+            }
+
+            .verify-row .value {
+                width: 100%;
+            }
+
+            .info-box input {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app-container" class="container">
+        <header id="main-header" class="header">
+            <div id="company-logo" class="logo">GAD</div>
+            <h1 id="page-title">QR-Scanning System</h1>
+            <nav id="nav-buttons" class="buttons">
+                <button id="btn-master">Master</button>
+                <button id="btn-history">History</button>
+            </nav>
+        </header>
+
+        <main id="main-content" class="main">
+            <section id="input-section" class="input-section">
+                <h2 id="input-title">Input Data</h2>
+
+                <div id="part-code-row" class="row">
+                    <label for="part-code">Part Code</label>
+                    <input type="text" id="part-code" value="ELCA-K092-00" readonly />
+                </div>
+
+                <div id="part-name-row" class="row">
+                    <label for="part-name">Part Name</label>
+                    <input type="text" id="part-name" value="Power cord" readonly />
+                </div>
+
+                <div id="customer-row" class="row">
+                    <label for="customer">Customer</label>
+                    <input type="text" id="customer" value="BLUE STAR" readonly />
+                </div>
+
+                <div id="scan-by-row" class="row">
+                    <label for="scan-by">Scan By</label>
+                    <input type="text" id="scan-by" value="XXXXXXXXX" readonly />
+                </div>
+
+                <div id="verification-section" class="verification">
+                    <h3 id="verification-title">Verification Status</h3>
+
+                    <div id="scan-data-row" class="verify-row">
+                        <button id="btn-scan-data">Scan Data</button>
+                        <div id="scan-data-value" class="value">ELCA-K092-00</div>
+                    </div>
+
+                    <div id="scan-status-row" class="verify-row">
+                        <button id="btn-scan-status">Scan Status</button>
+                        <div id="scan-status-value" class="value ok">OK</div>
+                    </div>
+
+                    <div id="part-code-status-row" class="verify-row">
+                        <button id="btn-part-code-status">Part Code Status</button>
+                        <div id="part-code-status-value" class="value ok">DATA MATCHED</div>
+                    </div>
+                </div>
+            </section>
+
+            <aside id="status-section" class="right-section">
+                <div id="scan-qty-box" class="info-box">
+                    <label for="scan-qty">Scan Qty</label>
+                    <input type="text" id="scan-qty" value="00001" readonly />
+                </div>
+
+                <div id="date-box" class="info-box">
+                    <label for="date">Date</label>
+                    <input type="text" id="date" value="13-09-2025" readonly />
+                </div>
+
+                <div id="time-box" class="info-box">
+                    <label for="time">Time</label>
+                    <input type="text" id="time" value="15:44:22" readonly />
+                </div>
+
+                <div id="overall-status" class="status">Over All Scan Status</div>
+
+                <div id="pass-status" class="pass-box">PASS</div>
+            </aside>
+        </main>
+    </div>
+</body>
+
+</html>
