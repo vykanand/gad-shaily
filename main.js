@@ -88,23 +88,33 @@ async function writeExcelFile(filePath, newData) {
 }
 
 // Register IPC handlers immediately on app start
+// Use project working directory when running unpackaged so master.xlsx
+// in the project root is picked up (same behaviour as before).
 const rootPath = app.isPackaged
   ? path.dirname(app.getPath('exe'))
-  : app.getAppPath();
+  : process.cwd();
 
 // Handle reading master data
 ipcMain.handle('read-master-data', async () => {
+  // Only look for master.xlsx in the application/project root (previous behaviour)
   const masterFilePath = path.join(rootPath, 'master.xlsx');
+  console.log('[IPC] read-master-data invoked. rootPath=', rootPath);
+  console.log('[IPC] master path =', masterFilePath);
+
   try {
     if (!fs.existsSync(masterFilePath)) {
+      console.error('[IPC] master.xlsx not found at', masterFilePath);
       dialog.showErrorBox(
         'File Not Found',
-        'master.xlsx not found in application directory.\n\nPlease ensure master.xlsx is in the same folder as the application.'
+        'master.xlsx not found in the application root.\n\nPlease place master.xlsx in the project root and restart the app.'
       );
       return null;
     }
+
+    console.log('[IPC] reading master file at', masterFilePath);
     return await readExcelFile(masterFilePath);
   } catch (error) {
+    console.error('[IPC] error reading master file:', error);
     dialog.showErrorBox(
       'Error Reading Master Data',
       `Could not read master.xlsx:\n${error.message}\n\nPlease ensure the file is not open in Excel.`

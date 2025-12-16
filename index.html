@@ -380,6 +380,13 @@
         border-radius: 10px;
       }
 
+      /* Ensure modal content is scrollable when content is large, keep visual height */
+      .modal-content {
+        max-height: 80vh;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
       .modal-header {
         position: relative;
         display: flex;
@@ -589,9 +596,16 @@
       let scanLogs = [];
       let settings = {
         fields: [], // Array of {id, label, header} objects
-        primaryField: "",
+        primaryFields: [], // Array of field IDs: first is identifier, others are required verification fields
         scanOperation: "equals",
         displayField: "", // Field ID to display prominently in master modal list
+      };
+
+      // Session state for multi-field verification
+      let scanSession = {
+        targetPart: null,
+        matchedFields: new Set(),
+        lastScannedAt: null,
       };
 
       // Load master data from Excel file
@@ -615,123 +629,154 @@
           }));
           console.log("Headers found:", headers, "headerInfos:", headerInfos);
 
+          // Build masterData rows as objects keyed by column letter, header name and normalized header
+          masterData = rawData
+            .slice(1)
+            .map((rowArr) => {
+              const obj = {};
+              for (let i = 0; i < headerInfos.length; i++) {
+                const h = headerInfos[i] || {
+                  name: "",
+                  col: columnLetter(i),
+                  norm: "",
+                };
+                const val =
+                  rowArr[i] !== undefined && rowArr[i] !== null
+                    ? String(rowArr[i])
+                    : "";
+                obj[h.col] = val;
+                obj[h.name] = val;
+                obj[h.norm] = val;
+              }
+              return obj;
+            })
+            .filter((r) =>
+              Object.values(r).some((v) => v && v.trim && v.trim() !== "")
+            );
+
+          console.log("Processed masterData rows:", masterData.length);
+
           // Load saved settings if available and apply
           loadSettings();
 
-          // If no fields exist, auto-create from all headers
-          if (!settings.fields || settings.fields.length === 0) {
-            settings.fields = headerInfos.map((hi, idx) => ({
-              id: "field_" + idx,
-              label: hi.name || hi.col,
-              header: hi.name,
-              headerCol: hi.col,
-            }));
-            // Set first field as primary by default
-            if (settings.fields.length > 0)
-              settings.primaryField = settings.fields[0].id;
-          } else {
-            // Ensure existing fields preserve headerCol where possible
-            settings.fields = settings.fields.map((f) => {
-              if (!f.headerCol) {
-                const match = headerInfos.find((hi) => hi.name === f.header);
-                return Object.assign({}, f, {
-                  headerCol: match ? match.col : "",
-                });
-              }
-              return f;
-            });
-          }
-
-          // Rebuild UI with current field mappings
-          rebuildInputUI();
-
-          // Build masterData as objects keyed by header name, column letter, and normalized name
-          masterData = rawData
-            .slice(1)
-            .map((row) => {
-              const obj = {};
-              headerInfos.forEach((hi, i) => {
-                const val = String(row[i] || "");
-                obj[hi.name] = val;
-                obj[hi.col] = val; // column letter key (A, B, ...)
-                if (hi.norm) obj[hi.norm] = val; // normalized key
-              });
-              return obj;
-            })
-            .filter((item) => {
-              // Filter out rows where primary field is empty
-              const primaryFieldDef = settings.fields.find(
-                (f) => f.id === settings.primaryField
+          // Reconcile saved field mappings against detected headers
+          function reconcileFieldMappings() {
+            if (!Array.isArray(settings.fields) || !headerInfos) return;
+            const infos = headerInfos || [];
+            const findByCol = (col) => infos.find((h) => h.col === col);
+            const findByName = (name) =>
+              infos.find(
+                (h) => h.name === name || h.norm === normalizeHeader(name)
               );
-              if (!primaryFieldDef) return true;
-              // Prefer headerCol if available
-              if (
-                primaryFieldDef.headerCol &&
-                item[primaryFieldDef.headerCol] !== undefined
-              ) {
-                return (
-                  String(item[primaryFieldDef.headerCol] || "").trim() !== ""
-                );
+            const normLabel = (s) => normalizeHeader(String(s || ""));
+
+            settings.fields = settings.fields.map((f, idx) => {
+              const out = Object.assign({}, f);
+              // If headerCol is present and valid, keep it
+              if (out.headerCol && findByCol(out.headerCol)) {
+                const hi = findByCol(out.headerCol);
+                out.header = hi.name;
+                out.headerCol = hi.col;
+                return out;
               }
-              return String(item[primaryFieldDef.header] || "").trim() !== "";
+
+              // Try exact name or normalized name
+              if (out.header) {
+                const hi = findByName(out.header);
+                if (hi) {
+                  out.header = hi.name;
+                  out.headerCol = hi.col;
+                  return out;
+                }
+              }
+
+              // Try matching by label
+              if (out.label) {
+                const labelNorm = normLabel(out.label);
+                const hi = infos.find(
+                  (h) =>
+                    normLabel(h.name) === labelNorm ||
+                    normLabel(h.name).includes(labelNorm) ||
+                    labelNorm.includes(normLabel(h.name))
+                );
+                if (hi) {
+                  out.header = hi.name;
+                  out.headerCol = hi.col;
+                  return out;
+                }
+              }
+
+              // Try mapping by numeric index in id: field_3 -> headerInfos[3]
+              const m = String(out.id || "").match(/_(\d+)$/);
+              if (m) {
+                const num = Number(m[1]);
+                if (Number.isInteger(num) && infos[num]) {
+                  out.header = infos[num].name;
+                  out.headerCol = infos[num].col;
+                  return out;
+                }
+              }
+
+              // Leave as-is if no mapping found
+              return out;
             });
-
-          console.log("Master data loaded:", masterData.length, "rows");
-
-          if (masterData.length === 0) {
-            const error =
-              "No data found in master.xlsx. Please check the file format.\n\nRequired columns: ensure mapping for Part Code and Part Name exist in Settings";
-            console.error(error);
-            alert(error);
-            return;
+            console.log(
+              "Field mappings reconciled:",
+              settings.fields.map((f) => ({
+                id: f.id,
+                header: f.header,
+                headerCol: f.headerCol,
+              }))
+            );
           }
+
+          reconcileFieldMappings();
+
+          // If no fields are configured yet, auto-populate mappings from detected headers
+          if (!settings.fields || settings.fields.length === 0) {
+            settings.fields = (headerInfos || []).map((h, i) => ({
+              id: `field_${i}`,
+              label: h.name || h.col || `Col ${h.col}`,
+              header: h.name || "",
+              headerCol: h.col || "",
+            }));
+            // default primary = first field, displayFields = first two if available
+            settings.primaryFields = settings.fields.length
+              ? [settings.fields[0].id]
+              : [];
+            settings.displayFields =
+              settings.fields.length > 1
+                ? [settings.fields[0].id, settings.fields[1].id]
+                : settings.fields.map((f) => f.id);
+            console.log("Auto-populated settings.fields from headers");
+            try {
+              saveSettings();
+            } catch (e) {
+              console.warn("Failed to save auto settings", e);
+            }
+          }
+
+          // Ensure input UI matches loaded settings
+          try {
+            rebuildInputUI();
+          } catch (e) {
+            console.warn("rebuildInputUI failed:", e);
+          }
+
+          // runtime scan session and field-matching handled by top-level handlers
         } catch (error) {
           console.error("Error loading master data:", error);
-          document.getElementById("scan-by").value = "ERROR LOADING MASTER";
-          alert(
-            "Error loading master.xlsx file.\n\nPlease ensure:\n" +
-              "1. The file exists in the same folder\n" +
-              "2. File has appropriate columns\n" +
-              "3. Data starts from the second row"
-          );
         }
       }
-
-      // Load settings from settings.json if present
-      function loadSettings() {
-        try {
-          if (fs.existsSync("settings.json")) {
-            const raw = fs.readFileSync("settings.json", "utf8");
-            const parsed = JSON.parse(raw);
-            settings = Object.assign(settings, parsed || {});
-          }
-        } catch (e) {
-          console.error("Failed to load settings.json:", e);
-        }
-      }
-
-      // Save settings to disk
-      function saveSettings() {
-        try {
-          fs.writeFileSync(
-            "settings.json",
-            JSON.stringify(settings, null, 2),
-            "utf8"
-          );
-          showNotification("Settings saved", "info");
-        } catch (e) {
-          console.error("Failed to save settings:", e);
-          showNotification("Failed to save settings", "error");
-        }
-      }
-
       // Rebuild input UI dynamically from settings.fields
       function rebuildInputUI() {
+        // Safely acquire required DOM nodes
         const inputSection = document.getElementById("input-section");
-        if (!inputSection) return;
-        const title = inputSection.querySelector("h2");
-        const verificationSection = inputSection.querySelector(".verification");
-        const scanByRow = inputSection.querySelector("#scan-by-row");
+        const scanByRow = document.getElementById("scan-by-row");
+        if (!inputSection || !scanByRow) {
+          console.warn("rebuildInputUI: required DOM nodes not found");
+          return;
+        }
 
         // Clear existing field rows (except title, scan-by, and verification)
         const existingRows = inputSection.querySelectorAll(
@@ -767,17 +812,48 @@
         if (!field) return "";
         // Prefer lookup by column address if available
         if (field.headerCol && row[field.headerCol] !== undefined) {
-          const v = String(row[field.headerCol] || "");
-          if (v && v !== "") return v;
+          const v = String(row[field.headerCol] || "").trim();
+          if (v) return v;
         }
-        // Then try exact header name
-        if (field.header && row[field.header] !== undefined) {
-          const v = String(row[field.header] || "");
-          if (v && v !== "") return v;
+
+        // Exact header name match
+        if (field.header) {
+          if (row.hasOwnProperty(field.header)) {
+            const v = String(row[field.header] || "").trim();
+            if (v) return v;
+          }
+          // Try normalized header key
+          const normKey = normalizeHeader(field.header || "");
+          if (normKey && row.hasOwnProperty(normKey)) {
+            const v = String(row[normKey] || "").trim();
+            if (v) return v;
+          }
         }
-        // Finally try normalized header key
-        const norm = normalizeHeader(field.header || "");
-        if (norm && row[norm] !== undefined) return String(row[norm] || "");
+
+        // Fallback: try to match a headerInfo that corresponds to this field
+        // (match by column address, exact header name, or normalized header name)
+        const desiredNorm = normalizeHeader(field.header || "");
+        let matchedHi = null;
+        if (field.headerCol) {
+          matchedHi = (headerInfos || []).find(
+            (h) => h.col === field.headerCol
+          );
+        }
+        if (!matchedHi && field.header) {
+          matchedHi = (headerInfos || []).find(
+            (h) => h.name === field.header || h.norm === desiredNorm
+          );
+        }
+        if (matchedHi) {
+          const keys = [matchedHi.col, matchedHi.name, matchedHi.norm];
+          for (const k of keys) {
+            if (k && row.hasOwnProperty(k)) {
+              const v = String(row[k] || "").trim();
+              if (v) return v;
+            }
+          }
+        }
+
         return "";
       }
 
@@ -804,14 +880,21 @@
       }
 
       // Helper: get primary field value from row
+      function getPrimaryFieldId() {
+        return (settings.primaryFields && settings.primaryFields[0]) || "";
+      }
+
+      // Helper: get primary field value from row (first primary field)
       function getPrimaryValue(row) {
-        return getValueFromRow(row, settings.primaryField);
+        const primaryId = getPrimaryFieldId();
+        if (!primaryId) return "";
+        return getValueFromRow(row, primaryId);
       }
 
       // Find part details from master data using primary field value
       function findPartDetails(primaryValue) {
         const primaryFieldDef = settings.fields.find(
-          (f) => f.id === settings.primaryField
+          (f) => f.id === getPrimaryFieldId()
         );
         if (!primaryFieldDef) return null;
         return masterData.find((item) => {
@@ -828,6 +911,81 @@
             String(item[primaryFieldDef.header] || "") === String(primaryValue)
           );
         });
+      }
+
+      // Load settings from `settings.json` if available, otherwise keep defaults
+      function loadSettings() {
+        try {
+          if (!fs.existsSync("settings.json")) {
+            console.log("settings.json not found, using defaults");
+            return;
+          }
+          const raw = fs.readFileSync("settings.json", "utf8").trim();
+          if (!raw) return;
+          let parsed = {};
+          try {
+            parsed = JSON.parse(raw);
+          } catch (e) {
+            console.warn("Failed to parse settings.json, ignoring:", e);
+            return;
+          }
+
+          // Basic merge: only replace known keys to avoid corrupting structure
+          if (Array.isArray(parsed.fields)) settings.fields = parsed.fields;
+          // Support legacy single-primary key 'primaryField' as well as new 'primaryFields' array
+          if (Array.isArray(parsed.primaryFields)) {
+            settings.primaryFields = parsed.primaryFields;
+          } else if (parsed.primaryField) {
+            settings.primaryFields = [parsed.primaryField];
+          }
+          // Support multiple display fields (new) or legacy single `displayField`
+          if (Array.isArray(parsed.displayFields)) {
+            settings.displayFields = parsed.displayFields;
+          } else if (parsed.displayField) {
+            settings.displayFields = [parsed.displayField];
+          }
+          if (parsed.scanOperation)
+            settings.scanOperation = parsed.scanOperation;
+          if (parsed.displayField) settings.displayField = parsed.displayField;
+
+          // Ensure fields have ids
+          settings.fields = (settings.fields || []).map((f, idx) => {
+            return Object.assign(
+              {
+                id: f.id || `field_${idx}`,
+                label: f.label || "Field",
+                header: f.header || "",
+                headerCol: f.headerCol || "",
+              },
+              f
+            );
+          });
+
+          console.log("Settings loaded:", settings);
+        } catch (error) {
+          console.error("Error loading settings:", error);
+        }
+      }
+
+      // Save current settings to `settings.json`
+      function saveSettings() {
+        try {
+          const out = {
+            fields: settings.fields || [],
+            primaryFields: settings.primaryFields || [],
+            scanOperation: settings.scanOperation || "equals",
+            displayField: settings.displayField || "",
+            displayFields: settings.displayFields || [],
+          };
+          fs.writeFileSync(
+            "settings.json",
+            JSON.stringify(out, null, 2),
+            "utf8"
+          );
+          console.log("Settings saved to settings.json");
+        } catch (error) {
+          console.error("Error saving settings:", error);
+        }
       }
 
       // Flag to prevent multiple simultaneous saves
@@ -1072,7 +1230,7 @@
           if (currentSelectedRow) {
             expectedValue = getPrimaryValue(currentSelectedRow);
           } else {
-            const primaryInput = document.getElementById(settings.primaryField);
+            const primaryInput = document.getElementById(getPrimaryFieldId());
             expectedValue = primaryInput ? primaryInput.value : "";
           }
 
@@ -1971,24 +2129,51 @@
 
           partsList.innerHTML = parts
             .map((item) => {
-              const idx = masterData.indexOf(item);
+              // Try to find the exact index in masterData; if not present, we'll try matching by primary value later
+              let idx = masterData.findIndex((m) => m === item);
               const primaryVal = getPrimaryValue(item) || "N/A";
+              if (idx === -1) {
+                // Fallback: find by primary value equality
+                const pv = primaryVal;
+                if (pv && pv !== "N/A") {
+                  idx = masterData.findIndex((m) => {
+                    const mv = getPrimaryValue(m) || "";
+                    return mv && String(mv).trim() === String(pv).trim();
+                  });
+                }
+              }
 
-              // Use configured display field or fall back to first 3 fields
+              // Use configured display fields. Support new `displayFields` (array)
+              // or legacy `displayField` (string). Show first as main text and
+              // append additional fields in parentheses.
               let displayContent = "";
-              if (settings.displayField) {
-                const displayFieldObj = settings.fields.find(
-                  (f) => f.id === settings.displayField
-                );
-                const displayValue =
-                  getValueFromRow(item, settings.displayField) || "N/A";
-                const displayLabel = displayFieldObj
-                  ? displayFieldObj.label
-                  : "Value";
-                displayContent = `<span class="part-code" style="font-weight: bold; font-size: 1.1em;">${displayValue}</span>`;
-                // Also show primary scan field if different
-                if (settings.displayField !== settings.primaryField) {
-                  displayContent += ` <span class="part-code" style="font-size: 0.9em; color: #666;">(${primaryVal})</span>`;
+              const displayFields = Array.isArray(settings.displayFields)
+                ? settings.displayFields
+                : settings.displayField
+                ? [settings.displayField]
+                : null;
+
+              if (displayFields && displayFields.length > 0) {
+                const mainId = displayFields[0];
+                const mainVal = getValueFromRow(item, mainId) || "N/A";
+                displayContent = `<span class="part-code" style="font-weight: bold; font-size: 1.1em;">${mainVal}</span>`;
+
+                // Collect appended values from remaining displayFields
+                const appended = displayFields
+                  .slice(1)
+                  .map((fid) => getValueFromRow(item, fid) || "")
+                  .filter(Boolean);
+                if (appended.length > 0) {
+                  // Use higher contrast and larger text for appended/bracketed values
+                  displayContent += ` <span class="part-code" style="font-size: 1.0em; color: #ffffff; opacity: 0.95;">(${appended.join(
+                    " | "
+                  )})</span>`;
+                } else if (
+                  !settings.primaryFields ||
+                  !settings.primaryFields.includes(mainId)
+                ) {
+                  // If no appended fields, show primaryVal in a brighter color if different
+                  displayContent += ` <span class="part-code" style="font-size: 1.0em; color: #fff3a6;">(${primaryVal})</span>`;
                 }
               } else {
                 // Fallback: show first 3 fields
@@ -2104,11 +2289,26 @@
             const verified = await showMasterListPinVerification();
             if (!verified) return;
 
-            const rowIndex = Number(partItem.dataset.rowIndex);
-            const partDetails =
+            let rowIndex = Number(partItem.dataset.rowIndex);
+            let partDetails =
               Number.isInteger(rowIndex) && rowIndex >= 0
                 ? masterData[rowIndex]
                 : null;
+
+            // If we couldn't resolve by index, try resolving by primary value
+            if (!partDetails) {
+              const pv = partItem.dataset.primaryValue;
+              if (pv) {
+                const foundIdx = masterData.findIndex((m) => {
+                  const mv = getPrimaryValue(m) || "";
+                  return mv && String(mv).trim() === String(pv).trim();
+                });
+                if (foundIdx >= 0) {
+                  rowIndex = foundIdx;
+                  partDetails = masterData[foundIdx];
+                }
+              }
+            }
 
             // Update the currently selected master row reference
             currentSelectedRow = partDetails;
@@ -2153,14 +2353,18 @@
           loadSettings();
           const modal = document.getElementById("settings-modal");
           const container = document.getElementById("mappings-container");
-          const primarySelect = document.getElementById("primary-field-select");
-          const displaySelect = document.getElementById("display-field-select");
+          const primaryContainer = document.getElementById(
+            "primary-field-container"
+          );
+          const displayContainer = document.getElementById(
+            "display-field-container"
+          );
           const scanOpSelect = document.getElementById("scan-op-select");
 
           // Clear UI
           container.innerHTML = "";
-          primarySelect.innerHTML = "";
-          displaySelect.innerHTML = "";
+          if (primaryContainer) primaryContainer.innerHTML = "";
+          if (displayContainer) displayContainer.innerHTML = "";
 
           // Build a row for each field with label input, header dropdown, and remove button
           // Use headerInfos (column-aware) and include any existing mapped headers to avoid data loss
@@ -2290,23 +2494,68 @@
           };
           container.appendChild(addBtn);
 
-          // Populate primary scan field select
-          settings.fields.forEach((f) => {
-            const opt = document.createElement("option");
-            opt.value = f.id;
-            opt.textContent = f.label;
-            if (settings.primaryField === f.id) opt.selected = true;
-            primarySelect.appendChild(opt);
-          });
+          // Populate primary scan field checkboxes (allow multiple selections)
+          if (primaryContainer) {
+            primaryContainer.innerHTML = "";
+            settings.fields.forEach((f) => {
+              const wrapper = document.createElement("label");
+              wrapper.style.display = "flex";
+              wrapper.style.alignItems = "center";
+              wrapper.style.gap = "8px";
+              wrapper.style.cursor = "pointer";
 
-          // Populate display field select
-          settings.fields.forEach((f) => {
-            const opt = document.createElement("option");
-            opt.value = f.id;
-            opt.textContent = f.label;
-            if (settings.displayField === f.id) opt.selected = true;
-            displaySelect.appendChild(opt);
-          });
+              const chk = document.createElement("input");
+              chk.type = "checkbox";
+              chk.value = f.id;
+              chk.id = `prim_chk_${f.id}`;
+              if (
+                settings.primaryFields &&
+                settings.primaryFields.includes(f.id)
+              )
+                chk.checked = true;
+
+              const span = document.createElement("span");
+              span.textContent = f.label;
+
+              wrapper.appendChild(chk);
+              wrapper.appendChild(span);
+              primaryContainer.appendChild(wrapper);
+            });
+          }
+
+          // Populate display field checkboxes (allow multiple selections)
+          if (displayContainer) {
+            displayContainer.innerHTML = "";
+            settings.fields.forEach((f) => {
+              const wrapper = document.createElement("label");
+              wrapper.style.display = "flex";
+              wrapper.style.alignItems = "center";
+              wrapper.style.gap = "8px";
+              wrapper.style.cursor = "pointer";
+
+              const chk = document.createElement("input");
+              chk.type = "checkbox";
+              chk.value = f.id;
+              chk.id = `disp_chk_${f.id}`;
+              if (
+                Array.isArray(settings.displayFields) &&
+                settings.displayFields.includes(f.id)
+              )
+                chk.checked = true;
+              else if (
+                !settings.displayFields &&
+                settings.displayField === f.id
+              )
+                chk.checked = true;
+
+              const span = document.createElement("span");
+              span.textContent = f.label;
+
+              wrapper.appendChild(chk);
+              wrapper.appendChild(span);
+              displayContainer.appendChild(wrapper);
+            });
+          }
 
           // Set scan operation
           if (settings.scanOperation)
@@ -2348,13 +2597,40 @@
             }
           });
 
-          // Read primary scan field, display field, and scan operation
-          settings.primaryField =
-            document.getElementById("primary-field-select").value ||
-            (settings.fields[0] ? settings.fields[0].id : "");
-          settings.displayField =
-            document.getElementById("display-field-select").value ||
-            (settings.fields[0] ? settings.fields[0].id : "");
+          // Read primary scan field(s), display field, and scan operation
+          const primaryContainerElem = document.getElementById(
+            "primary-field-container"
+          );
+          const selectedPrimary = primaryContainerElem
+            ? Array.from(
+                primaryContainerElem.querySelectorAll(
+                  'input[type="checkbox"]:checked'
+                )
+              ).map((o) => o.value)
+            : [];
+          settings.primaryFields = selectedPrimary.length
+            ? selectedPrimary
+            : settings.fields[0]
+            ? [settings.fields[0].id]
+            : [];
+          // Read display fields from checkboxes (allow multiple)
+          const displayContainerElem = document.getElementById(
+            "display-field-container"
+          );
+          const selectedDisplay = displayContainerElem
+            ? Array.from(
+                displayContainerElem.querySelectorAll(
+                  'input[type="checkbox"]:checked'
+                )
+              ).map((o) => o.value)
+            : [];
+          settings.displayFields = selectedDisplay.length
+            ? selectedDisplay
+            : settings.fields[0]
+            ? [settings.fields[0].id]
+            : [];
+          // keep legacy single value for compatibility
+          settings.displayField = settings.displayFields[0] || "";
           settings.scanOperation =
             document.getElementById("scan-op-select").value || "equals";
           saveSettings();
@@ -2542,7 +2818,7 @@
 
         // New code to enforce initial blank and red highlight on required fields and show popup on scan or click if no part selected
         function markRequiredFields() {
-          const primaryInput = document.getElementById(settings.primaryField);
+          const primaryInput = document.getElementById(getPrimaryFieldId());
           const scanByInput = document.getElementById("scan-by");
 
           // If primary scan field is empty, mark all inputs as required (red border) and blank
@@ -2569,7 +2845,7 @@
 
         // Open master modal if primary scan field is not selected
         async function checkPartSelectedBeforeAction() {
-          const primaryInput = document.getElementById(settings.primaryField);
+          const primaryInput = document.getElementById(getPrimaryFieldId());
           if (!primaryInput || !primaryInput.value.trim()) {
             // Open master modal
             document.getElementById("btn-master").click();
@@ -2897,8 +3173,21 @@
               flex-wrap: wrap;
             "
           >
-            <label style="min-width: 140px">Display Field</label>
-            <select id="display-field-select"></select>
+            <label style="min-width: 140px">Display Fields</label>
+            <div
+              id="display-field-container"
+              style="
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                max-height: 120px;
+                overflow: auto;
+                padding: 4px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                min-width: 220px;
+              "
+            ></div>
           </div>
           <div
             style="
@@ -2909,8 +3198,21 @@
               flex-wrap: wrap;
             "
           >
-            <label style="min-width: 140px">Primary Scan Field</label>
-            <select id="primary-field-select"></select>
+            <label style="min-width: 140px">Primary Scan Fields</label>
+            <div
+              id="primary-field-container"
+              style="
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                max-height: 120px;
+                overflow: auto;
+                padding: 4px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                min-width: 180px;
+              "
+            ></div>
             <label style="min-width: 140px">Scan Operation</label>
             <select id="scan-op-select">
               <option value="equals">Equals</option>
