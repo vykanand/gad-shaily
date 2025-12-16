@@ -13,47 +13,43 @@
       "headerCol": ""
     },
     {
-      "id": "field_2",
-      "label": "DESCRIPTION STRANDS(±0.008)mm OD(±0.05)mm",
-      "header": "DESCRIPTION STRANDS(±0.008)mm OD(±0.05)mm",
-      "headerCol": ""
-    },
-    {
       "id": "field_3",
       "label": "WIRE COLOR",
       "header": "WIRE COLOR",
       "headerCol": "D"
     },
     {
-      "id": "field_4",
-      "label": "CUTTING LENGTH ± 5 MM",
-      "header": "CUTTING LENGTH ± 5 MM",
-      "headerCol": "E"
-    },
-    {
-      "id": "field_6",
+      "id": "field_1765883633139",
       "label": "TERMINAL1",
       "header": "TERMINAL1",
       "headerCol": ""
     },
     {
-      "id": "field_8",
+      "id": "field_1765883644031",
       "label": "TERMINAL2",
       "header": "TERMINAL2",
       "headerCol": ""
     }
   ],
   "primaryFields": [
-    "field_1",
-    "field_6",
-    "field_8"
+    "field_1"
   ],
   "scanOperation": "equals",
   "displayField": "field_1",
   "displayFields": [
     "field_1",
-    "field_3",
-    "field_6",
-    "field_8"
+    "field_3"
+  ],
+  "removedHeaders": [
+    {
+      "name": "DESCRIPTION STRANDS(±0.008)mm OD(±0.05)mm",
+      "col": "",
+      "norm": "DESCRIPTION STRANDS(±0.008)mm OD(±0.05)mm"
+    },
+    {
+      "name": "CUTTING LENGTH ± 5 MM",
+      "col": "E",
+      "norm": "CUTTING LENGTH ± 5 MM"
+    }
   ]
 }

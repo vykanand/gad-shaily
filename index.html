@@ -599,6 +599,7 @@
         primaryFields: [], // Array of field IDs: first is identifier, others are required verification fields
         scanOperation: "equals",
         displayField: "", // Field ID to display prominently in master modal list
+        removedHeaders: [],
       };
 
       // Session state for multi-field verification
@@ -948,6 +949,10 @@
             settings.scanOperation = parsed.scanOperation;
           if (parsed.displayField) settings.displayField = parsed.displayField;
 
+          // Support removed/hidden headers list
+          if (Array.isArray(parsed.removedHeaders))
+            settings.removedHeaders = parsed.removedHeaders;
+
           // Ensure fields have ids
           settings.fields = (settings.fields || []).map((f, idx) => {
             return Object.assign(
@@ -960,6 +965,18 @@
               f
             );
           });
+
+          // Normalize removed headers entries
+          settings.removedHeaders = (settings.removedHeaders || []).map((h) =>
+            Object.assign(
+              {
+                name: h.name || "",
+                col: h.col || "",
+                norm: normalizeHeader(h.name || ""),
+              },
+              h
+            )
+          );
 
           console.log("Settings loaded:", settings);
         } catch (error) {
@@ -976,6 +993,7 @@
             scanOperation: settings.scanOperation || "equals",
             displayField: settings.displayField || "",
             displayFields: settings.displayFields || [],
+            removedHeaders: settings.removedHeaders || [],
           };
           fs.writeFileSync(
             "settings.json",
@@ -2385,16 +2403,17 @@
             }
           });
 
-          settings.fields.forEach((field, idx) => {
+          // Helper: create a mapping row element for a given field or header
+          function createMappingRow(field) {
             const row = document.createElement("div");
             row.style.display = "flex";
             row.style.gap = "8px";
             row.style.alignItems = "center";
-            row.dataset.fieldId = field.id;
+            row.dataset.fieldId = field.id || `field_${Date.now()}`;
 
             const labelInput = document.createElement("input");
             labelInput.type = "text";
-            labelInput.value = field.label;
+            labelInput.value = field.label || "Field";
             labelInput.style.minWidth = "140px";
             labelInput.placeholder = "Label";
 
@@ -2411,6 +2430,7 @@
                 opt.value = h.col || h.name || "";
                 opt.textContent =
                   (h.col ? h.col + " — " : "") + (h.name || "(empty)");
+                // pre-select if this field maps to the header
                 if (
                   (field.headerCol && field.headerCol === h.col) ||
                   (!field.headerCol && field.header === h.name)
@@ -2420,6 +2440,31 @@
               });
             }
 
+            // Track mapped header info on the row for reliable removal
+            const resolveSelectedHeader = () => {
+              const sel = select.value || "";
+              const hi =
+                (headersList || []).find((h) => h.col === sel) ||
+                (headersList || []).find((h) => h.name === sel) ||
+                null;
+              if (hi) {
+                row.dataset.headerName = hi.name || "";
+                row.dataset.headerCol = hi.col || "";
+                row.dataset.headerNorm =
+                  hi.norm || normalizeHeader(hi.name || "");
+              } else if (field.header) {
+                row.dataset.headerName = field.header || "";
+                row.dataset.headerCol = field.headerCol || "";
+                row.dataset.headerNorm = normalizeHeader(field.header || "");
+              } else {
+                row.dataset.headerName = "";
+                row.dataset.headerCol = "";
+                row.dataset.headerNorm = "";
+              }
+            };
+            resolveSelectedHeader();
+            select.addEventListener("change", resolveSelectedHeader);
+
             const removeBtn = document.createElement("button");
             removeBtn.textContent = "✕";
             removeBtn.style.padding = "4px 8px";
@@ -2428,15 +2473,64 @@
             removeBtn.style.border = "none";
             removeBtn.style.borderRadius = "4px";
             removeBtn.style.cursor = "pointer";
-            removeBtn.onclick = () => row.remove();
+            removeBtn.onclick = () => {
+              settings.removedHeaders = settings.removedHeaders || [];
+              const name = row.dataset.headerName || "";
+              const col = row.dataset.headerCol || "";
+              const norm =
+                row.dataset.headerNorm || normalizeHeader(name || "");
+              if (name || col) {
+                if (
+                  !settings.removedHeaders.find(
+                    (r) => (r.col || "") === col && (r.name || "") === name
+                  )
+                ) {
+                  settings.removedHeaders.push({
+                    name: name,
+                    col: col,
+                    norm: norm,
+                  });
+                }
+              } else {
+                // Try a normalized lookup against headerInfos as a last resort
+                const sel = select.value || "";
+                const hi =
+                  (headerInfos || []).find((h) => h.col === sel) ||
+                  (headerInfos || []).find(
+                    (h) =>
+                      normalizeHeader(h.name || "") ===
+                      normalizeHeader(sel || "")
+                  );
+                if (
+                  hi &&
+                  !settings.removedHeaders.find(
+                    (r) => r.col === hi.col && r.name === hi.name
+                  )
+                ) {
+                  settings.removedHeaders.push({
+                    name: hi.name,
+                    col: hi.col,
+                    norm: hi.norm,
+                  });
+                }
+              }
+              updateHiddenList();
+              row.remove();
+              rebuildPrimaryDisplay();
+            };
 
             row.appendChild(labelInput);
             row.appendChild(select);
             row.appendChild(removeBtn);
-            container.appendChild(row);
+            return row;
+          }
+
+          // Create initial mapping rows
+          settings.fields.forEach((field) => {
+            container.appendChild(createMappingRow(field));
           });
 
-          // Add "Add Field" button
+          // Add "Add Field" button that uses the same row creator
           const addBtn = document.createElement("button");
           addBtn.textContent = "+ Add Field";
           addBtn.style.marginTop = "8px";
@@ -2447,119 +2541,154 @@
           addBtn.style.borderRadius = "6px";
           addBtn.style.cursor = "pointer";
           addBtn.onclick = () => {
-            const newId = "field_" + Date.now();
-            const row = document.createElement("div");
-            row.style.display = "flex";
-            row.style.gap = "8px";
-            row.style.alignItems = "center";
-            row.dataset.fieldId = newId;
-
-            const labelInput = document.createElement("input");
-            labelInput.type = "text";
-            labelInput.value = "New Field";
-            labelInput.style.minWidth = "140px";
-            labelInput.placeholder = "Label";
-
-            const select = document.createElement("select");
-            select.style.flex = "1";
-            if (headersList.length === 0) {
-              const opt = document.createElement("option");
-              opt.value = "";
-              opt.textContent = "(no headers detected)";
-              select.appendChild(opt);
-            } else {
-              headersList.forEach((h) => {
-                const opt = document.createElement("option");
-                opt.value = h.col || h.name || "";
-                opt.textContent =
-                  (h.col ? h.col + " — " : "") + (h.name || "(empty)");
-                select.appendChild(opt);
-              });
-            }
-
-            const removeBtn = document.createElement("button");
-            removeBtn.textContent = "✕";
-            removeBtn.style.padding = "4px 8px";
-            removeBtn.style.backgroundColor = "#ff3b30";
-            removeBtn.style.color = "white";
-            removeBtn.style.border = "none";
-            removeBtn.style.borderRadius = "4px";
-            removeBtn.style.cursor = "pointer";
-            removeBtn.onclick = () => row.remove();
-
-            row.appendChild(labelInput);
-            row.appendChild(select);
-            row.appendChild(removeBtn);
+            const newField = {
+              id: `field_${Date.now()}`,
+              label: "New Field",
+              header: "",
+              headerCol: "",
+            };
+            const row = createMappingRow(newField);
             container.insertBefore(row, addBtn);
+            rebuildPrimaryDisplay();
           };
           container.appendChild(addBtn);
 
-          // Populate primary scan field checkboxes (allow multiple selections)
-          if (primaryContainer) {
+          // Function to rebuild primary and display checkbox lists from current mapping rows
+          function rebuildPrimaryDisplay() {
+            if (!primaryContainer || !displayContainer) return;
             primaryContainer.innerHTML = "";
-            settings.fields.forEach((f) => {
-              const wrapper = document.createElement("label");
-              wrapper.style.display = "flex";
-              wrapper.style.alignItems = "center";
-              wrapper.style.gap = "8px";
-              wrapper.style.cursor = "pointer";
+            displayContainer.innerHTML = "";
+            const rowsNow = container.querySelectorAll("div[data-field-id]");
+            rowsNow.forEach((r) => {
+              const fid = r.dataset.fieldId;
+              const label =
+                (r.querySelector('input[type="text"]') || {}).value || fid;
 
-              const chk = document.createElement("input");
-              chk.type = "checkbox";
-              chk.value = f.id;
-              chk.id = `prim_chk_${f.id}`;
+              const pwrap = document.createElement("label");
+              pwrap.style.display = "flex";
+              pwrap.style.alignItems = "center";
+              pwrap.style.gap = "8px";
+              pwrap.style.cursor = "pointer";
+              const pchk = document.createElement("input");
+              pchk.type = "checkbox";
+              pchk.value = fid;
+              pchk.id = `prim_chk_${fid}`;
               if (
                 settings.primaryFields &&
-                settings.primaryFields.includes(f.id)
+                settings.primaryFields.includes(fid)
               )
-                chk.checked = true;
+                pchk.checked = true;
+              const pspan = document.createElement("span");
+              pspan.textContent = label;
+              pwrap.appendChild(pchk);
+              pwrap.appendChild(pspan);
+              primaryContainer.appendChild(pwrap);
 
-              const span = document.createElement("span");
-              span.textContent = f.label;
-
-              wrapper.appendChild(chk);
-              wrapper.appendChild(span);
-              primaryContainer.appendChild(wrapper);
-            });
-          }
-
-          // Populate display field checkboxes (allow multiple selections)
-          if (displayContainer) {
-            displayContainer.innerHTML = "";
-            settings.fields.forEach((f) => {
-              const wrapper = document.createElement("label");
-              wrapper.style.display = "flex";
-              wrapper.style.alignItems = "center";
-              wrapper.style.gap = "8px";
-              wrapper.style.cursor = "pointer";
-
-              const chk = document.createElement("input");
-              chk.type = "checkbox";
-              chk.value = f.id;
-              chk.id = `disp_chk_${f.id}`;
+              const dwrap = document.createElement("label");
+              dwrap.style.display = "flex";
+              dwrap.style.alignItems = "center";
+              dwrap.style.gap = "8px";
+              dwrap.style.cursor = "pointer";
+              const dchk = document.createElement("input");
+              dchk.type = "checkbox";
+              dchk.value = fid;
+              dchk.id = `disp_chk_${fid}`;
               if (
                 Array.isArray(settings.displayFields) &&
-                settings.displayFields.includes(f.id)
+                settings.displayFields.includes(fid)
               )
-                chk.checked = true;
-              else if (
-                !settings.displayFields &&
-                settings.displayField === f.id
-              )
-                chk.checked = true;
-
-              const span = document.createElement("span");
-              span.textContent = f.label;
-
-              wrapper.appendChild(chk);
-              wrapper.appendChild(span);
-              displayContainer.appendChild(wrapper);
+                dchk.checked = true;
+              else if (!settings.displayFields && settings.displayField === fid)
+                dchk.checked = true;
+              const dspan = document.createElement("span");
+              dspan.textContent = label;
+              dwrap.appendChild(dchk);
+              dwrap.appendChild(dspan);
+              displayContainer.appendChild(dwrap);
             });
           }
+
+          // initial build
+          rebuildPrimaryDisplay();
 
           // Set scan operation
           if (settings.scanOperation)
             scanOpSelect.value = settings.scanOperation;
+
+          // Update hidden headers UI
+          function updateHiddenList() {
+            const hiddenList = document.getElementById("hidden-headers-list");
+            // Deduplicate removedHeaders by col+name (normalize keys)
+            settings.removedHeaders = (settings.removedHeaders || []).filter(
+              (v, i, arr) => {
+                const key = `${(v.col || "").trim()}||${(v.name || "").trim()}`;
+                return (
+                  arr.findIndex(
+                    (x) =>
+                      `${(x.col || "").trim()}||${(x.name || "").trim()}` ===
+                      key
+                  ) === i
+                );
+              }
+            );
+            hiddenList.innerHTML = "";
+            (settings.removedHeaders || []).forEach((h, idx) => {
+              const row = document.createElement("div");
+              row.style.display = "flex";
+              row.style.justifyContent = "space-between";
+              row.style.alignItems = "center";
+              row.style.padding = "6px";
+
+              const txt = document.createElement("div");
+              txt.textContent =
+                (h.col ? h.col + " — " : "") + (h.name || "(empty)");
+              const btns = document.createElement("div");
+
+              const restore = document.createElement("button");
+              restore.textContent = "Restore";
+              restore.style.marginRight = "6px";
+              restore.style.padding = "4px 8px";
+              restore.style.cursor = "pointer";
+              restore.onclick = () => {
+                // Remove from removedHeaders
+                settings.removedHeaders = (
+                  settings.removedHeaders || []
+                ).filter((x) => !(x.col === h.col && x.name === h.name));
+                // Create a mapping row for this header
+                const f = {
+                  id: `field_${Date.now()}`,
+                  label: h.name || h.col || "Restored",
+                  header: h.name,
+                  headerCol: h.col,
+                };
+                const newRow = createMappingRow(f);
+                container.insertBefore(newRow, addBtn);
+                rebuildPrimaryDisplay();
+                updateHiddenList();
+              };
+
+              const removePerm = document.createElement("button");
+              removePerm.textContent = "Delete";
+              removePerm.style.padding = "4px 8px";
+              removePerm.style.background = "#660000";
+              removePerm.style.color = "white";
+              removePerm.style.cursor = "pointer";
+              removePerm.onclick = () => {
+                settings.removedHeaders = (
+                  settings.removedHeaders || []
+                ).filter((x) => !(x.col === h.col && x.name === h.name));
+                updateHiddenList();
+              };
+
+              btns.appendChild(restore);
+              btns.appendChild(removePerm);
+              row.appendChild(txt);
+              row.appendChild(btns);
+              hiddenList.appendChild(row);
+            });
+          }
+
+          updateHiddenList();
 
           // Show modal
           modal.style.display = "block";
@@ -2578,16 +2707,33 @@
             const select = row.querySelector("select");
             if (labelInput && select) {
               const selVal = select.value || "";
-              // selVal is expected to be a column letter if detected, fallback to header name
-              const hi =
-                (headerInfos || []).find((h) => h.col === selVal) ||
-                (headerInfos || []).find((h) => h.name === selVal);
-              const headerName = hi ? hi.name : selVal;
-              const headerCol = hi
-                ? hi.col
-                : selVal && /^[A-Z]+$/.test(selVal)
-                ? selVal
-                : "";
+              // Prefer dataset values stored on the row (most reliable)
+              let headerName = row.dataset.headerName || "";
+              let headerCol = row.dataset.headerCol || "";
+              if (!headerName && !headerCol) {
+                // Try to resolve via headerInfos or headersList with normalization
+                const normSel = normalizeHeader(selVal || "");
+                const hi =
+                  (headerInfos || []).find((h) => h.col === selVal) ||
+                  (headerInfos || []).find((h) => h.name === selVal) ||
+                  (headerInfos || []).find((h) => h.norm === normSel) ||
+                  (headersList || []).find(
+                    (h) =>
+                      h.name === selVal ||
+                      h.col === selVal ||
+                      h.norm === normSel
+                  );
+                if (hi) {
+                  headerName = hi.name || "";
+                  headerCol = hi.col || "";
+                } else if (selVal && /^[A-Z]+$/.test(selVal)) {
+                  headerCol = selVal;
+                  headerName = "";
+                } else {
+                  headerName = selVal;
+                  headerCol = "";
+                }
+              }
               settings.fields.push({
                 id: fieldId,
                 label: labelInput.value || "Field",
@@ -3163,6 +3309,22 @@
             "
           >
             <!-- Mapping rows will be injected here -->
+          </div>
+          <div style="margin-top: 12px">
+            <label style="color: yellow; display: block; margin-bottom: 6px"
+              >Hidden Headers (removed from UI)</label
+            >
+            <div
+              id="hidden-headers-list"
+              style="
+                background: #00264d;
+                padding: 8px;
+                border-radius: 6px;
+                max-height: 160px;
+                overflow: auto;
+                color: white;
+              "
+            ></div>
           </div>
           <div
             style="
