@@ -583,6 +583,7 @@
       // Main application variables
       let masterData = [];
       let availableHeaders = [];
+      let headerInfos = []; // Array of { name, col, norm }
       let currentSelectedRow = null;
       let lastScannedCode = "";
       let scanLogs = [];
@@ -604,35 +605,56 @@
           }
 
           // Get the headers from the first row
-          const headers = rawData[0];
+          const headers = rawData[0] || [];
           availableHeaders = headers.map((h) => String(h || ""));
-          console.log("Headers found:", headers);
+          // Build headerInfos with column addresses
+          headerInfos = headers.map((h, idx) => ({
+            name: String(h || ""),
+            col: columnLetter(idx),
+            norm: normalizeHeader(String(h || "")),
+          }));
+          console.log("Headers found:", headers, "headerInfos:", headerInfos);
 
           // Load saved settings if available and apply
           loadSettings();
 
           // If no fields exist, auto-create from all headers
           if (!settings.fields || settings.fields.length === 0) {
-            settings.fields = headers.map((h, idx) => ({
+            settings.fields = headerInfos.map((hi, idx) => ({
               id: "field_" + idx,
-              label: String(h),
-              header: String(h),
+              label: hi.name || hi.col,
+              header: hi.name,
+              headerCol: hi.col,
             }));
             // Set first field as primary by default
             if (settings.fields.length > 0)
               settings.primaryField = settings.fields[0].id;
+          } else {
+            // Ensure existing fields preserve headerCol where possible
+            settings.fields = settings.fields.map((f) => {
+              if (!f.headerCol) {
+                const match = headerInfos.find((hi) => hi.name === f.header);
+                return Object.assign({}, f, {
+                  headerCol: match ? match.col : "",
+                });
+              }
+              return f;
+            });
           }
 
           // Rebuild UI with current field mappings
           rebuildInputUI();
 
-          // Build masterData as objects keyed by original header names
+          // Build masterData as objects keyed by header name, column letter, and normalized name
           masterData = rawData
             .slice(1)
             .map((row) => {
               const obj = {};
-              headers.forEach((h, i) => {
-                obj[String(h || "")] = String(row[i] || "");
+              headerInfos.forEach((hi, i) => {
+                const val = String(row[i] || "");
+                obj[hi.name] = val;
+                obj[hi.col] = val; // column letter key (A, B, ...)
+                if (hi.norm) obj[hi.norm] = val; // normalized key
               });
               return obj;
             })
@@ -642,6 +664,15 @@
                 (f) => f.id === settings.primaryField
               );
               if (!primaryFieldDef) return true;
+              // Prefer headerCol if available
+              if (
+                primaryFieldDef.headerCol &&
+                item[primaryFieldDef.headerCol] !== undefined
+              ) {
+                return (
+                  String(item[primaryFieldDef.headerCol] || "").trim() !== ""
+                );
+              }
               return String(item[primaryFieldDef.header] || "").trim() !== "";
             });
 
@@ -734,12 +765,19 @@
       function getValueFromRow(row, fieldId) {
         const field = settings.fields.find((f) => f.id === fieldId);
         if (!field) return "";
-        // Try exact header match first, then try a normalized-header fallback
-        const raw = String(row[field.header] || "");
-        if (raw && raw !== "") return raw;
-        const normHeader = normalizeHeader(field.header);
-        if (normHeader && row[normHeader] !== undefined)
-          return String(row[normHeader] || "");
+        // Prefer lookup by column address if available
+        if (field.headerCol && row[field.headerCol] !== undefined) {
+          const v = String(row[field.headerCol] || "");
+          if (v && v !== "") return v;
+        }
+        // Then try exact header name
+        if (field.header && row[field.header] !== undefined) {
+          const v = String(row[field.header] || "");
+          if (v && v !== "") return v;
+        }
+        // Finally try normalized header key
+        const norm = normalizeHeader(field.header || "");
+        if (norm && row[norm] !== undefined) return String(row[norm] || "");
         return "";
       }
 
@@ -753,6 +791,18 @@
         }
       }
 
+      // Convert zero-based column index to Excel-style column letters (0 -> A, 26 -> AA)
+      function columnLetter(index) {
+        let n = Number(index);
+        if (!Number.isFinite(n) || n < 0) return "";
+        let s = "";
+        while (n >= 0) {
+          s = String.fromCharCode((n % 26) + 65) + s;
+          n = Math.floor(n / 26) - 1;
+        }
+        return s;
+      }
+
       // Helper: get primary field value from row
       function getPrimaryValue(row) {
         return getValueFromRow(row, settings.primaryField);
@@ -764,10 +814,20 @@
           (f) => f.id === settings.primaryField
         );
         if (!primaryFieldDef) return null;
-        return masterData.find(
-          (item) =>
+        return masterData.find((item) => {
+          if (
+            primaryFieldDef.headerCol &&
+            item[primaryFieldDef.headerCol] !== undefined
+          ) {
+            return (
+              String(item[primaryFieldDef.headerCol] || "") ===
+              String(primaryValue)
+            );
+          }
+          return (
             String(item[primaryFieldDef.header] || "") === String(primaryValue)
-        );
+          );
+        });
       }
 
       // Flag to prevent multiple simultaneous saves
@@ -2103,13 +2163,23 @@
           displaySelect.innerHTML = "";
 
           // Build a row for each field with label input, header dropdown, and remove button
-          // Use a union of detected headers and any existing mapped headers so users don't lose mappings
-          const headersSet = new Set();
-          (availableHeaders || []).forEach((h) => headersSet.add(h));
-          (settings.fields || []).forEach(
-            (f) => f.header && headersSet.add(f.header)
-          );
-          const headersList = Array.from(headersSet);
+          // Use headerInfos (column-aware) and include any existing mapped headers to avoid data loss
+          const headersList = (headerInfos || []).slice();
+          // Also include any headers referenced in settings.fields that might not be present
+          (settings.fields || []).forEach((f) => {
+            if (
+              f.header &&
+              !headersList.find(
+                (h) => h.name === f.header && h.col === f.headerCol
+              )
+            ) {
+              headersList.push({
+                name: f.header,
+                col: f.headerCol || "",
+                norm: normalizeHeader(f.header || ""),
+              });
+            }
+          });
 
           settings.fields.forEach((field, idx) => {
             const row = document.createElement("div");
@@ -2134,9 +2204,14 @@
             } else {
               headersList.forEach((h) => {
                 const opt = document.createElement("option");
-                opt.value = h;
-                opt.textContent = h;
-                if (field.header === h) opt.selected = true;
+                opt.value = h.col || h.name || "";
+                opt.textContent =
+                  (h.col ? h.col + " — " : "") + (h.name || "(empty)");
+                if (
+                  (field.headerCol && field.headerCol === h.col) ||
+                  (!field.headerCol && field.header === h.name)
+                )
+                  opt.selected = true;
                 select.appendChild(opt);
               });
             }
@@ -2191,8 +2266,9 @@
             } else {
               headersList.forEach((h) => {
                 const opt = document.createElement("option");
-                opt.value = h;
-                opt.textContent = h;
+                opt.value = h.col || h.name || "";
+                opt.textContent =
+                  (h.col ? h.col + " — " : "") + (h.name || "(empty)");
                 select.appendChild(opt);
               });
             }
@@ -2245,17 +2321,29 @@
           const container = document.getElementById("mappings-container");
           const rows = container.querySelectorAll("div[data-field-id]");
 
-          // Rebuild fields array from UI
+          // Rebuild fields array from UI (store both header name and column address when available)
           settings.fields = [];
           rows.forEach((row) => {
             const fieldId = row.dataset.fieldId;
             const labelInput = row.querySelector('input[type="text"]');
             const select = row.querySelector("select");
             if (labelInput && select) {
+              const selVal = select.value || "";
+              // selVal is expected to be a column letter if detected, fallback to header name
+              const hi =
+                (headerInfos || []).find((h) => h.col === selVal) ||
+                (headerInfos || []).find((h) => h.name === selVal);
+              const headerName = hi ? hi.name : selVal;
+              const headerCol = hi
+                ? hi.col
+                : selVal && /^[A-Z]+$/.test(selVal)
+                ? selVal
+                : "";
               settings.fields.push({
                 id: fieldId,
                 label: labelInput.value || "Field",
-                header: select.value,
+                header: headerName,
+                headerCol: headerCol,
               });
             }
           });
