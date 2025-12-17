@@ -1,4 +1,11 @@
 (function () {
+  const DEBUG = !!window.SCAN_MANAGER_DEBUG;
+  const safeLog = {
+    info: (...args) => { if (DEBUG && console && console.info) console.info(...args); },
+    warn: (...args) => { if (DEBUG && console && console.warn) console.warn(...args); },
+    error: (...args) => { if (DEBUG && console && console.error) console.error(...args); }
+  };
+
   const scanManager = {
     // Initialize session state
     scanSession: {
@@ -7,36 +14,31 @@
       requiredFields: [],
     },
 
-    startSessionForCurrentPart: function () {
+    startSessionForCurrentPart() {
       try {
         this.scanSession.targetPart = window.currentSelectedRow || null;
         // If no explicit selection, try resolve from primary input value
         if (!this.scanSession.targetPart) {
-          try {
-            const primaryId = (window.getPrimaryFieldId && window.getPrimaryFieldId()) || (window.settings && window.settings.primaryFields && window.settings.primaryFields[0]) || '';
-            if (primaryId) {
-              const el = document.getElementById(primaryId);
-              const primaryVal = el ? (el.value || el.textContent || '') : '';
-              if (primaryVal && typeof window.findPartDetails === 'function') {
-                const resolved = window.findPartDetails(primaryVal);
-                if (resolved) {
-                  this.scanSession.targetPart = resolved;
-                  // auto-resolved targetPart from primary input (no console output per final-only logging)
-                    // Populate input fields from resolved targetPart so UI and logs have values
-                    try {
-                      const fields = (window.settings && window.settings.fields) || [];
-                      fields.forEach(f => {
-                        try {
-                          const el = document.getElementById(f.id);
-                          const val = (typeof window.getValueFromRow === 'function') ? window.getValueFromRow(resolved, f.id) : '';
-                          if (el && val) el.value = val;
-                        } catch(e){}
-                      });
-                    } catch(e){}
-                }
+          const primaryId = (typeof window.getPrimaryFieldId === 'function' && window.getPrimaryFieldId()) || (window.settings?.primaryFields?.[0]) || '';
+          if (primaryId) {
+            const primaryEl = document.getElementById(primaryId);
+            const primaryVal = primaryEl ? (primaryEl.value || primaryEl.textContent || '') : '';
+            if (primaryVal && typeof window.findPartDetails === 'function') {
+              const resolved = window.findPartDetails(primaryVal);
+              if (resolved) {
+                this.scanSession.targetPart = resolved;
+                // Populate input fields from resolved targetPart so UI and logs have values
+                const fields = window.settings?.fields ?? [];
+                fields.forEach(f => {
+                  const fieldEl = document.getElementById(f.id);
+                  try {
+                    const val = (typeof window.getValueFromRow === 'function') ? window.getValueFromRow(resolved, f.id) : '';
+                    if (fieldEl && val) fieldEl.value = val;
+                  } catch (innerE) { /* ignore per best-effort population */ }
+                });
               }
             }
-          } catch (e) { console.warn('scanManager: auto-resolve primary failed', e); }
+          }
         }
         this.scanSession.matchedFields = new Set();
         // clear any manual active selection
@@ -48,24 +50,14 @@
         // Try multiple places: window.settings.primaryFields, window.settings.primaryField (legacy),
         // finally attempt to read local settings.json file as a last-resort fallback.
         let req = [];
-        try {
-          const pf = window.settings && window.settings.primaryFields;
-          if (Array.isArray(pf) && pf.length > 0) {
-            req = pf.slice();
-            // primaryFields sourced from window.settings.primaryFields (silent)
-          } else if (typeof pf === 'string' && pf.trim()) {
-            req = pf.split(',').map(s => s.trim()).filter(Boolean);
-            // primaryFields parsed from window.settings.primaryFields (string) (silent)
-          } else {
-            // Check legacy singular key
-            const pfSing = window.settings && (window.settings.primaryField || window.settings.primary_field);
-            if (pfSing && typeof pfSing === 'string' && pfSing.trim()) {
-              req = [pfSing.trim()];
-              // primaryFields derived from legacy window.settings.primaryField (silent)
-            }
-          }
-        } catch (e) {
-          req = [];
+        const pf = window.settings?.primaryFields;
+        if (Array.isArray(pf) && pf.length > 0) {
+          req = pf.slice();
+        } else if (typeof pf === 'string' && pf.trim()) {
+          req = pf.split(',').map(s => s.trim()).filter(Boolean);
+        } else {
+          const pfSing = window.settings?.primaryField ?? window.settings?.primary_field;
+          if (typeof pfSing === 'string' && pfSing.trim()) req = [pfSing.trim()];
         }
 
         // Last resort: try loading settings.json from disk (synchronous XHR) to recover configuration
@@ -77,15 +69,10 @@
             if (xhr.status === 200) {
               try {
                 const parsed = JSON.parse(xhr.responseText || '{}');
-                if (Array.isArray(parsed.primaryFields) && parsed.primaryFields.length > 0) {
-                  req = parsed.primaryFields.slice();
-                  // primaryFields loaded from settings.json fallback (silent)
-                } else if (typeof parsed.primaryField === 'string' && parsed.primaryField.trim()) {
-                  req = [parsed.primaryField.trim()];
-                  // primaryFields derived from settings.json.primaryField (legacy) (silent)
-                }
+                if (Array.isArray(parsed.primaryFields) && parsed.primaryFields.length > 0) req = parsed.primaryFields.slice();
+                else if (typeof parsed.primaryField === 'string' && parsed.primaryField.trim()) req = [parsed.primaryField.trim()];
               } catch (e) {
-                console.warn && console.warn('scanManager: settings.json parse failed', e);
+                safeLog.warn('scanManager: settings.json parse failed', e);
               }
             }
           } catch (e) {
@@ -94,43 +81,31 @@
         }
 
         // Ensure settings.fields exists; if missing, try to load settings.json (best-effort) so we can resolve labels
-        try {
-          let settingFields = window.settings && window.settings.fields;
-          if (!Array.isArray(settingFields) || settingFields.length === 0) {
-            // Attempt to load settings.json synchronously (best-effort fallback) to populate fields
-            if (typeof XMLHttpRequest !== 'undefined') {
+        let settingFields = window.settings?.fields ?? [];
+        if ((!Array.isArray(settingFields) || settingFields.length === 0) && typeof XMLHttpRequest !== 'undefined') {
+          try {
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', 'settings.json', false);
+            xhr.send(null);
+            if (xhr.status === 200) {
               try {
-                const xhr = new XMLHttpRequest();
-                xhr.open('GET', 'settings.json', false);
-                xhr.send(null);
-                if (xhr.status === 200) {
-                  try {
-                    const parsed = JSON.parse(xhr.responseText || '{}');
-                    if (Array.isArray(parsed.fields) && parsed.fields.length > 0) {
-                      window.settings = window.settings || {};
-                      window.settings.fields = parsed.fields.slice();
-                      settingFields = window.settings.fields;
-                      // populated window.settings.fields from settings.json fallback (silent)
-                    }
-                  } catch (e) {
-                    console.warn && console.warn('scanManager: parse settings.json failed', e);
-                  }
+                const parsed = JSON.parse(xhr.responseText || '{}');
+                if (Array.isArray(parsed.fields) && parsed.fields.length > 0) {
+                  window.settings = window.settings || {};
+                  window.settings.fields = parsed.fields.slice();
+                  settingFields = window.settings.fields;
                 }
-              } catch (e) {}
+              } catch (e) { safeLog.warn('scanManager: parse settings.json failed', e); }
             }
-          }
+          } catch (e) { /* ignore */ }
+        }
 
-          const originalReq = req.slice();
-          if (Array.isArray(settingFields) && settingFields.length > 0) {
-            const knownIds = settingFields.map((f) => f.id).filter(Boolean);
-            // Keep only known IDs. If this removes items, we will report missing DOM/setting entries.
-            req = req.filter((id) => knownIds.includes(id));
-          } else {
-            // No settings.fields metadata available — keep configured list as-is
-            req = originalReq.slice();
-          }
-        } catch (e) {
-          console.warn && console.warn('scanManager: primaryFields filtering error', e);
+        const originalReq = req.slice();
+        if (Array.isArray(settingFields) && settingFields.length > 0) {
+          const knownIds = settingFields.map(f => f.id).filter(Boolean);
+          req = req.filter(id => knownIds.includes(id));
+        } else {
+          req = originalReq.slice();
         }
 
         // Detect missing DOM elements for required fields. If any are missing, mark the session invalid
@@ -155,6 +130,7 @@
           const sf = window.settings && window.settings.fields;
         } catch (e) {}
         this.scanSession.requiredFields = req;
+        safeLog.info && safeLog.info('scanManager: requiredFields initialized', req);
         this._ensurePanelExists();
         // ensure panel is visible for immediate user feedback
         try {
@@ -362,6 +338,9 @@
           const stateEl = item?.querySelector('.multi-scan-state');
           const icon = item?.querySelector('.multi-scan-icon');
           if (!item || !stateEl) return;
+          // clear any transient manual visuals
+          item.style.border = '';
+          item.style.boxShadow = '';
           if (this.scanSession.matchedFields.has(fid)) {
             passed++;
             if (allPassed) {
@@ -390,6 +369,11 @@
               stateEl.style.color = '#fff';
               item.style.background = 'rgba(255,59,48,0.15)';
               if (icon) icon.style.background = '#ff3b30';
+              // If this failed field is the manualActive, add a resume highlight
+              if (this.scanSession._manualActive === fid) {
+                item.style.border = '2px solid rgba(255,193,7,0.9)';
+                item.style.boxShadow = '0 0 10px rgba(255,193,7,0.12)';
+              }
             } else {
               stateEl.textContent = 'PENDING';
               stateEl.style.color = '#ffd54f';
@@ -424,10 +408,19 @@
       }
     },
 
-    _clearPanelAfterDelay: function (delayMs) {
+    _clearPanelAfterDelay(delayMs, clearMatched) {
       try {
         clearTimeout(this._panelClearTimer);
         this._panelClearTimer = setTimeout(() => {
+          try {
+            if (clearMatched) {
+              // Reset matched fields and manual active, then re-highlight first pending field
+              this.scanSession.matchedFields = new Set();
+              this.scanSession._manualActive = null;
+              try { this._highlightPendingFields(); } catch (e) {}
+              try { this._updatePanelStatus(); } catch (e) {}
+            }
+          } catch (innerE) { /* ignore */ }
           const panel = document.getElementById('multi-scan-panel');
           if (panel) panel.style.display = 'none';
         }, delayMs || 1200);
@@ -576,6 +569,7 @@
 
           // Mark matched and advance
           this.scanSession.matchedFields.add(currentField);
+          try { this._highlightPendingFields(); } catch(e) { /* ensure UI reflects new state */ }
           // finalize and store sequence record
           try {
             const rec = this.scanSession._currentScanRecord;
@@ -593,6 +587,24 @@
           // Refresh panel after marking match
           try { this._updatePanelStatus(); } catch (e) {}
 
+          // Briefly show PASS on the pass-status element for intermediate matched fields (yellow)
+          try {
+            const passEl = document.getElementById('pass-status');
+            if (passEl) {
+              passEl.textContent = 'PASSED';
+              passEl.classList.remove('failed');
+              passEl.style.background = 'linear-gradient(90deg,#ffd54f,#ffb300)';
+              passEl.style.color = '#022';
+              setTimeout(() => {
+                try {
+                  passEl.textContent = 'READY';
+                  passEl.style.background = '';
+                  passEl.style.color = '';
+                } catch (inner) {}
+              }, 800);
+            }
+          } catch (e) {}
+
           // If none left, final PASS
           const allPassed = required.length > 0 && required.every((f) => this.scanSession.matchedFields.has(f));
           if (allPassed) {
@@ -606,7 +618,8 @@
               const passEl = document.getElementById("pass-status");
               passEl.textContent = "All Passed";
               passEl.classList.remove("failed");
-              passEl.classList.add("pass-box");
+              passEl.style.background = 'linear-gradient(90deg,#00c853,#66bb6a)';
+              passEl.style.color = '#022';
 
               // Also update the multi-scan overall indicator to reflect final pass
               try {
@@ -623,9 +636,10 @@
               if (scanQty) scanQty.value = String(Number(scanQty.value) + 1).padStart(5, "0");
 
               // Clear visuals after a short delay for final pass
-              setTimeout(() => {
+                setTimeout(() => {
                 passEl.textContent = "READY";
-                passEl.classList.remove("pass-box");
+                passEl.style.background = '';
+                passEl.style.color = '';
                 const sdv = document.getElementById("scan-data-value");
                 if (sdv) sdv.textContent = "";
                 document.getElementById("scan-status-value").textContent = "";
@@ -651,10 +665,9 @@
               console.error('Error showing PASS UI:', e);
             }
 
-            // Reset session for next set (but keep passed highlights)
-            this.scanSession.matchedFields = new Set();
+            // Preserve passed highlights briefly, then reset matched fields and re-highlight first field
             try { this._updatePanelStatus(); } catch (e) {}
-            try { this._clearPanelAfterDelay(1200); } catch (e) {}
+            try { this._clearPanelAfterDelay(1200, true); } catch (e) {}
             return;
           }
 
@@ -677,10 +690,56 @@
           if (inp) {
             inp.classList.remove("scan-active", "scan-pending", "scan-passed");
             inp.classList.add("scan-failed");
+            // keep failed field as manual active so operator knows to retry it
+            try { this.scanSession._manualActive = currentField; if (inp.focus) inp.focus(); } catch (e) {}
+            try { this._highlightPendingFields(); } catch(e) {}
           }
+          // Show FAILED on pass-status so operator knows (red)
+          try {
+            const passEl = document.getElementById('pass-status');
+            if (passEl) {
+              passEl.textContent = 'FAILED';
+              passEl.classList.add('failed');
+              passEl.style.background = 'linear-gradient(90deg,#ff3b30,#ff6b6b)';
+              passEl.style.color = '#fff';
+            }
+          } catch (e) {}
           try { this._updatePanelStatus(); } catch(e) {}
 
           try {
+            // Detailed diagnostic output to help identify why NOT_MATCH occurred
+            try {
+              const expectedVal = expected || "";
+              const scannedVal = cleanedCode || "";
+              const expectedNorm = String(expectedVal).normalize('NFKC').trim();
+              const scannedNorm = String(scannedVal).normalize('NFKC').trim();
+              const expectedCodes = Array.from(expectedNorm).map((c) => c.charCodeAt(0));
+              const scannedCodes = Array.from(scannedNorm).map((c) => c.charCodeAt(0));
+              console.error('scanManager: NOT_MATCH diagnostic', {
+                currentField: currentField,
+                expectedRaw: expectedVal,
+                expectedNorm: expectedNorm,
+                expectedCharCodes: expectedCodes,
+                scannedRaw: scannedVal,
+                scannedNorm: scannedNorm,
+                scannedCharCodes: scannedCodes,
+                targetPart: this.scanSession.targetPart || null,
+                missingFields: this.scanSession._missingFields || [],
+                sessionRequired: this.scanSession.requiredFields || []
+              });
+              if (!expectedVal) {
+                console.error('scanManager: NOT_MATCH reason=EMPTY_EXPECTED for field', currentField);
+              } else if (expectedNorm === scannedNorm) {
+                console.error('scanManager: NOT_MATCH reason=NORMALIZED_EQUAL_but_raw_differ');
+              } else if (expectedNorm.toLowerCase() === scannedNorm.toLowerCase()) {
+                console.error('scanManager: NOT_MATCH reason=case_mismatch');
+              } else {
+                console.error('scanManager: NOT_MATCH reason=value_mismatch');
+              }
+            } catch (diagE) {
+              console.error('scanManager: NOT_MATCH diagnostic failed', diagE);
+            }
+
             if (typeof window.saveErrorScanLogRealtime === 'function') window.saveErrorScanLogRealtime(logEntry);
           } catch (e) {
             console.error('saveErrorScanLogRealtime failed:', e);
@@ -718,6 +777,7 @@
               if (failedInp) {
                 failedInp.classList.remove("scan-failed");
                 failedInp.classList.add("scan-pending");
+                try { this.scanSession._manualActive = currentField; if (failedInp.focus) failedInp.focus(); } catch(e) {}
               }
               const passEl = document.getElementById("pass-status");
               passEl.textContent = "READY";
