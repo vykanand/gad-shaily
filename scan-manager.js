@@ -108,11 +108,25 @@
           req = originalReq.slice();
         }
 
-        // Detect missing DOM elements for required fields. If any are missing, mark the session invalid
+        // Detect missing DOM elements for required fields. If any are missing, try to rebuild inputs once before failing
         try {
-          const missing = (req || []).filter(id => !document.getElementById(id));
+          let missing = (req || []).filter(id => !document.getElementById(id));
           if (missing.length > 0) {
-            console.error && console.error('scanManager: required primary field DOM elements not found:', missing);
+            safeLog.warn && safeLog.warn('scanManager: required primary field DOM elements missing, attempting rebuild', missing);
+            // Try user-provided rebuild routine if available (best-effort)
+            try {
+              if (typeof window.rebuildInputUI === 'function') {
+                window.rebuildInputUI();
+                // re-evaluate missing after rebuild
+                missing = (req || []).filter(id => !document.getElementById(id));
+              }
+            } catch (re) {
+              safeLog.warn && safeLog.warn('scanManager: rebuildInputUI threw', re);
+            }
+          }
+
+          if (missing.length > 0) {
+            console.error && console.error('scanManager: required primary field DOM elements not found after rebuild attempt:', missing);
             this.scanSession._hasMissingFields = true;
             this.scanSession._missingFields = missing.slice();
           } else {
