@@ -53,5 +53,6 @@
       "col": "E",
       "norm": "CUTTING LENGTH ± 5 MM"
     }
-  ]
+  ],
+  "showMultiScanPanel": false
 }
