@@ -435,6 +435,34 @@
       }
     },
 
+    _updateVerificationUI: function (statusText, scannedValue, statusClass) {
+      try {
+        // clear any pending clear timer for verification UI
+        try { clearTimeout(this._verificationClearTimer); } catch (e) {}
+        const sdv = document.getElementById("scan-data-value");
+        if (sdv) sdv.textContent = scannedValue || "";
+        const sst = document.getElementById("scan-status-value");
+        if (sst) {
+          sst.textContent = statusText || "";
+          sst.classList.remove("ok", "failed", "scanning");
+          if (statusClass) sst.classList.add(statusClass);
+        }
+      } catch (e) { /* best-effort UI update */ }
+    },
+
+    _clearVerificationUI: function (delayMs) {
+      try {
+        clearTimeout(this._verificationClearTimer);
+        this._verificationClearTimer = setTimeout(() => {
+          try {
+            const sdv = document.getElementById("scan-data-value"); if (sdv) sdv.textContent = "";
+            const sst = document.getElementById("scan-status-value"); if (sst) { sst.textContent = ""; sst.classList.remove("ok","failed","scanning"); }
+            const part = document.getElementById("part-code-status-value"); if (part) { part.textContent = ""; part.classList.remove("ok","failed"); }
+          } catch (e) {}
+        }, delayMs || 1200);
+      } catch (e) { /* ignore */ }
+    },
+
     _clearPanelAfterDelay(delayMs, clearMatched) {
       try {
         clearTimeout(this._panelClearTimer);
@@ -460,6 +488,8 @@
     handleScan: async function (scannedCode) {
       try {
         const cleanedCode = scannedCode;
+        // Show immediate scanning state in verification UI for each incoming scan
+        try { this._updateVerificationUI('SCANNING', cleanedCode, 'scanning'); } catch (e) {}
         if (!cleanedCode) return;
 
         // Diagnostic logging and sequence tracking for each scan
@@ -614,6 +644,9 @@
           // Refresh panel after marking match
           try { this._updatePanelStatus(); } catch (e) {}
 
+          // Update verification UI for this successful intermediate match and clear shortly
+          try { this._updateVerificationUI('OK', cleanedCode, 'ok'); this._clearVerificationUI(1000); } catch (e) {}
+
           // Briefly show PASS on the pass-status element for intermediate matched fields (yellow)
           try {
             const passEl = document.getElementById('pass-status');
@@ -721,6 +754,8 @@
             try { this.scanSession._manualActive = currentField; if (inp.focus) inp.focus(); } catch (e) {}
             try { this._highlightPendingFields(); } catch(e) {}
           }
+          // Update verification UI to show failed scan and clear after error handling
+          try { this._updateVerificationUI('FAILED', cleanedCode, 'failed'); this._clearVerificationUI(7000); } catch (e) {}
           // Show FAILED on pass-status so operator knows (red)
           try {
             const passEl = document.getElementById('pass-status');
