@@ -225,17 +225,34 @@
 
     _compare: function (cleanedCode, expectedValue) {
       const op = (window.settings && window.settings.scanOperation) || "equals";
-      try {
-        if (op === "equals") return cleanedCode === expectedValue;
-        if (op === "contains") return cleanedCode.includes(expectedValue) || expectedValue.includes(cleanedCode);
-        if (op === "startsWith") return cleanedCode.startsWith(expectedValue) || expectedValue.startsWith(cleanedCode);
-        if (op === "regex") {
-          const re = new RegExp(expectedValue);
-          return re.test(cleanedCode);
+      const normalize = (s) => {
+        try {
+          return String(s || "").normalize("NFKC").trim().toLowerCase();
+        } catch (e) {
+          return String(s || "").trim().toLowerCase();
         }
+      };
+
+      try {
+        if (op === "regex") {
+          try {
+            const re = new RegExp(expectedValue, "i");
+            return re.test(String(cleanedCode || ""));
+          } catch (e) {
+            // invalid regex -> fallback to normalized equals
+            return normalize(cleanedCode) === normalize(expectedValue);
+          }
+        }
+
+        const a = normalize(cleanedCode);
+        const b = normalize(expectedValue);
+
+        if (op === "equals") return a === b;
+        if (op === "contains") return a.includes(b) || b.includes(a);
+        if (op === "startsWith") return a.startsWith(b) || b.startsWith(a);
       } catch (e) {
-        console.error("scanManager compare error, falling back to equals", e);
-        return cleanedCode === expectedValue;
+        safeLog.error("scanManager compare error, falling back to equals", e);
+        try { return String(cleanedCode || "") === String(expectedValue || ""); } catch (_) { return false; }
       }
       return false;
     },
