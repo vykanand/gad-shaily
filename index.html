@@ -578,6 +578,27 @@
           opacity: 0;
         }
       }
+
+      /* Multi-field scan highlight states */
+      .scan-pending {
+        background-color: #fff176; /* yellow */
+        color: black;
+      }
+
+      .scan-active {
+        background-color: #ff9800; /* orange */
+        color: black;
+      }
+
+      .scan-passed {
+        background-color: #00ff99; /* green */
+        color: black;
+      }
+
+      .scan-failed {
+        background-color: #ff3b30; /* red */
+        color: white;
+      }
     </style>
     <script>
       // Configuration
@@ -1232,6 +1253,20 @@
       // Handle scanned input
       function handleScan(scannedCode) {
         console.log("handleScan called with:", scannedCode);
+
+        // If multiple primary fields are configured, delegate to scanManager
+        if (
+          Array.isArray(settings.primaryFields) &&
+          settings.primaryFields.length > 1 &&
+          window.scanManager &&
+          typeof window.scanManager.handleScan === "function"
+        ) {
+          try {
+            return window.scanManager.handleScan(scannedCode);
+          } catch (e) {
+            console.error("scanManager.handleScan error:", e);
+          }
+        }
 
         try {
           // Clean the scanned code
@@ -2356,6 +2391,18 @@
             document.getElementById("pass-status").classList.remove("pass-box");
 
             hidePartsModal();
+            // Start multi-field scan session for the selected part if manager available
+            try {
+              if (
+                window.scanManager &&
+                typeof window.scanManager.startSessionForCurrentPart ===
+                  "function"
+              ) {
+                window.scanManager.startSessionForCurrentPart();
+              }
+            } catch (e) {
+              console.error("Error starting scan session:", e);
+            }
           }
         });
 
@@ -3482,5 +3529,6 @@
     >
       License expired or invalid. Please contact support to renew your license.
     </div>
+    <script src="scan-manager.js"></script>
   </body>
 </html>

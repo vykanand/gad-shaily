@@ -32,7 +32,9 @@
     }
   ],
   "primaryFields": [
-    "field_1"
+    "field_1",
+    "field_1765883633139",
+    "field_1765883644031"
   ],
   "scanOperation": "equals",
   "displayField": "field_1",
