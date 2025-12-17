@@ -484,7 +484,7 @@
       } catch (e) { /* ignore */ }
     },
 
-    _clearPanelAfterDelay(delayMs, clearMatched) {
+    _clearPanelAfterDelay(delayMs, clearMatched, hidePanel = true) {
       try {
         clearTimeout(this._panelClearTimer);
         this._panelClearTimer = setTimeout(() => {
@@ -498,7 +498,7 @@
             }
           } catch (innerE) { /* ignore */ }
           const panel = document.getElementById('multi-scan-panel');
-          if (panel) panel.style.display = 'none';
+          if (panel && hidePanel) panel.style.display = 'none';
         }, delayMs || 1200);
       } catch (e) {
         console.error('scanManager._clearPanelAfterDelay error', e);
@@ -733,7 +733,8 @@
 
             // Preserve passed highlights briefly, then reset matched fields and re-highlight first field
             try { this._updatePanelStatus(); } catch (e) {}
-            try { this._clearPanelAfterDelay(1200, true); } catch (e) {}
+            // Reset matched fields and UI but keep the panel visible for subsequent scans
+            try { this._clearPanelAfterDelay(1200, true, false); } catch (e) {}
             return;
           }
 
