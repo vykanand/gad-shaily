@@ -279,6 +279,22 @@
         min-height: 150px; /* Ensure minimum height */
       }
 
+      /* Intermediate sequential pass (yellow) */
+      .interim-pass {
+        background: linear-gradient(90deg, #ffd54f, #ffb300);
+        color: #022;
+        font-size: 42px;
+        font-weight: bold;
+        padding: 30px 0;
+        margin-top: 10px;
+        border-radius: 8px;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 150px;
+      }
+
       .failed {
         background-color: red;
         color: white;
@@ -819,7 +835,16 @@
           const input = document.createElement("input");
           input.type = "text";
           input.id = field.id;
-          input.value = "";
+          // Preserve current selected row values if available
+          try {
+            const cur =
+              typeof currentSelectedRow !== "undefined"
+                ? currentSelectedRow
+                : null;
+            input.value = cur ? getValueFromRow(cur, field.id) || "" : "";
+          } catch (e) {
+            input.value = "";
+          }
           input.readOnly = true;
 
           row.appendChild(label);
@@ -866,8 +891,28 @@
             (h) => h.name === field.header || h.norm === desiredNorm
           );
         }
+        // If still not matched, try matching by label or normalized label against headerInfos
+        if (!matchedHi && field.label) {
+          const labNorm = normalizeHeader(field.label || "");
+          matchedHi = (headerInfos || []).find(
+            (h) =>
+              normalizeHeader(h.name || "") === labNorm ||
+              normalizeHeader(h.name || "").includes(labNorm)
+          );
+        }
         if (matchedHi) {
           const keys = [matchedHi.col, matchedHi.name, matchedHi.norm];
+          for (const k of keys) {
+            if (k && row.hasOwnProperty(k)) {
+              const v = String(row[k] || "").trim();
+              if (v) return v;
+            }
+          }
+        }
+
+        // Last resort: try to find any headerInfos where the normalized header exists on row
+        for (const hi of headerInfos || []) {
+          const keys = [hi.col, hi.name, hi.norm];
           for (const k of keys) {
             if (k && row.hasOwnProperty(k)) {
               const v = String(row[k] || "").trim();
@@ -1477,31 +1522,53 @@
       let scanBuffer = "";
       let scanTimeout;
       let isScanning = false;
+      // Suppress verbose keydown logs by default; set to false to re-enable
+      window.SUPPRESS_SCANNER_KEYLOGS = true;
 
       // Listen for keydown events to capture scanner input
       document.addEventListener("keydown", function (e) {
-        console.log(
-          "Key detected:",
-          e.key,
-          "Code:",
-          e.code,
-          "Target:",
-          e.target.tagName
-        );
+        const targetTag =
+          e.target && e.target.tagName ? e.target.tagName : "UNKNOWN";
+        const targetId = e.target && e.target.id ? e.target.id : "";
+        const targetReadOnly = !!(e.target && e.target.readOnly);
+        const suppress = !!window.SUPPRESS_SCANNER_KEYLOGS;
+        if (!suppress) {
+          console.log(
+            "Key detected:",
+            e.key,
+            "Code:",
+            e.code,
+            "Target:",
+            targetTag,
+            targetId,
+            "readOnly:",
+            targetReadOnly
+          );
+        }
 
-        // Ignore if focus is on any input element (including password fields and search boxes)
-        if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") {
-          console.log("Ignoring key - focus is on input element");
+        // If focused element is an INPUT/TEXTAREA and editable, ignore to allow manual typing
+        if (
+          (targetTag === "INPUT" || targetTag === "TEXTAREA") &&
+          !targetReadOnly
+        ) {
+          if (!suppress)
+            console.log("Ignoring key - focus is on editable input element");
           return;
         }
 
         try {
           // Handle Enter key - this signals end of scan
           if (e.key === "Enter" || e.code === "Enter") {
-            console.log(
-              "Enter key detected - processing scan buffer:",
-              scanBuffer
-            );
+            if (!suppress)
+              console.log(
+                "Enter key detected - processing scan buffer:",
+                scanBuffer,
+                "focused:",
+                targetTag,
+                targetId,
+                "readOnly:",
+                targetReadOnly
+              );
             e.preventDefault();
 
             // Clear any existing timeout
@@ -1535,7 +1602,7 @@
 
           // Ignore special keys that aren't characters
           if (e.key.length > 1 && e.key !== "Enter") {
-            console.log("Ignoring special key:", e.key);
+            if (!suppress) console.log("Ignoring special key:", e.key);
             return;
           }
 
@@ -1543,12 +1610,26 @@
           if (!isScanning) {
             isScanning = true;
             scanBuffer = "";
-            console.log("Started scanning mode");
+            if (!suppress)
+              console.log("Started scanning mode (scanner capture)");
           }
+
+          // Prevent default so input elements (readOnly) don't receive characters
+          try {
+            e.preventDefault();
+          } catch (e_) {}
 
           // Add character to buffer
           scanBuffer += e.key;
-          console.log("Buffer updated:", scanBuffer);
+          // Detailed debug showing buffer and source element (suppressed by default)
+          if (!suppress)
+            console.log(
+              "Buffer updated:",
+              scanBuffer,
+              "from target:",
+              targetTag,
+              targetId
+            );
 
           // Clear existing timeout
           if (scanTimeout) {
@@ -1557,10 +1638,14 @@
 
           // Set timeout to auto-process if Enter is not received (fallback)
           scanTimeout = setTimeout(() => {
-            console.log(
-              "Timeout reached - auto-processing buffer:",
-              scanBuffer
-            );
+            if (!suppress)
+              console.log(
+                "Timeout reached - auto-processing buffer:",
+                scanBuffer,
+                "from target:",
+                targetTag,
+                targetId
+              );
             if (scanBuffer.length > 0) {
               const scannedCode = scanBuffer;
               scanBuffer = "";
@@ -1588,6 +1673,14 @@
           }
         }
       });
+
+      // Debug: confirm listener attachment
+      try {
+        console.info("Scanner keydown listener attached");
+        window.scannerKeydownAttached = true;
+      } catch (e) {
+        // ignore in non-browser test harness
+      }
 
       // Helper function to show notifications
       function showNotification(message, type = "info") {
@@ -1695,7 +1788,16 @@
                 pinError.textContent = "Invalid PIN. Please try again.";
                 pinInput.value = "";
                 pinInput.focus();
-                partsModal.style.display = "block"; // Show parts modal again
+                // Show parts modal again if present (safe access)
+                try {
+                  const partsModal = document.getElementById("parts-modal");
+                  if (partsModal) partsModal.style.display = "block";
+                } catch (e) {
+                  console.warn(
+                    "Could not re-open parts modal after PIN failure",
+                    e
+                  );
+                }
               }
             } catch (error) {
               console.error("Error verifying PIN:", error);
