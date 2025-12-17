@@ -1339,29 +1339,44 @@
             expectedValue
           );
 
-          // Apply scan operation configured in settings
+          // Apply scan operation configured in settings (normalized, case-insensitive)
           let isMatch = false;
           const op = settings.scanOperation || "equals";
+          const normalize = (s) => {
+            try {
+              return String(s || "")
+                .normalize("NFKC")
+                .trim()
+                .toLowerCase();
+            } catch (e) {
+              return String(s || "")
+                .trim()
+                .toLowerCase();
+            }
+          };
           try {
-            if (op === "equals") isMatch = cleanedCode === expectedValue;
-            else if (op === "contains")
-              isMatch =
-                cleanedCode.includes(expectedValue) ||
-                expectedValue.includes(cleanedCode);
-            else if (op === "startsWith")
-              isMatch =
-                cleanedCode.startsWith(expectedValue) ||
-                expectedValue.startsWith(cleanedCode);
-            else if (op === "regex") {
-              const re = new RegExp(expectedValue);
-              isMatch = re.test(cleanedCode);
+            if (op === "regex") {
+              try {
+                const re = new RegExp(expectedValue, "i");
+                isMatch = re.test(String(cleanedCode || ""));
+              } catch (reErr) {
+                isMatch = normalize(cleanedCode) === normalize(expectedValue);
+              }
+            } else {
+              const a = normalize(cleanedCode);
+              const b = normalize(expectedValue);
+              if (op === "equals") isMatch = a === b;
+              else if (op === "contains")
+                isMatch = a.includes(b) || b.includes(a);
+              else if (op === "startsWith")
+                isMatch = a.startsWith(b) || b.startsWith(a);
             }
           } catch (e) {
             console.error(
               "Error evaluating scan operation, falling back to equality:",
               e
             );
-            isMatch = cleanedCode === expectedValue;
+            isMatch = String(cleanedCode || "") === String(expectedValue || "");
           }
 
           const scannerInfo = document.getElementById("scan-by").value;
