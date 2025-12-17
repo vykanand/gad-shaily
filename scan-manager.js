@@ -373,15 +373,15 @@
             if (allPassed) {
               // Final overall pass - green
               stateEl.textContent = 'PASSED';
-              stateEl.style.color = '#006400';
+              stateEl.style.color = '#b2ff59';
               item.style.background = 'rgba(0,200,83,0.12)';
-              if (icon) icon.style.background = '#00c853';
+              if (icon) icon.style.background = '#b2ff59';
             } else {
               // Intermediate per-field pass: show yellow so operator sees progress
               stateEl.textContent = 'PASSED';
-              stateEl.style.color = '#006400';
+              stateEl.style.color = '#b2ff59';
               item.style.background = 'rgba(255,213,79,0.16)';
-              if (icon) icon.style.background = '#ffd54f';
+              if (icon) icon.style.background = '#b2ff59';
             }
           } else {
             const inp = document.getElementById(fid);
@@ -460,6 +460,27 @@
             const part = document.getElementById("part-code-status-value"); if (part) { part.textContent = ""; part.classList.remove("ok","failed"); }
           } catch (e) {}
         }, delayMs || 1200);
+      } catch (e) { /* ignore */ }
+    },
+
+    _showReadyState: function () {
+      try {
+        const passEl = document.getElementById('pass-status');
+        if (passEl) {
+          passEl.textContent = 'READY';
+          passEl.classList.remove('failed','pass-box');
+          passEl.style.background = '';
+          passEl.style.color = '';
+          passEl.style.border = '';
+          passEl.style.boxShadow = '';
+        }
+        // Clear verification related UI
+        try {
+          const sdv = document.getElementById('scan-data-value'); if (sdv) { sdv.textContent = ''; sdv.classList.remove('scanned-success'); }
+          const sst = document.getElementById('scan-status-value'); if (sst) { sst.textContent = ''; sst.classList.remove('ok','failed','scanning'); sst.style.background = ''; sst.style.color = ''; }
+          const part = document.getElementById('part-code-status-value'); if (part) { part.textContent = ''; part.classList.remove('ok','failed'); part.style.background = ''; part.style.color = ''; }
+          const overall = document.getElementById('multi-scan-overall'); if (overall) { overall.textContent = 'READY'; overall.style.background = ''; overall.style.color = '#ffd54f'; }
+        } catch (e) {}
       } catch (e) { /* ignore */ }
     },
 
@@ -656,11 +677,7 @@
               passEl.style.background = 'linear-gradient(90deg,#ffd54f,#ffb300)';
               passEl.style.color = '#022';
               setTimeout(() => {
-                try {
-                  passEl.textContent = 'READY';
-                  passEl.style.background = '';
-                  passEl.style.color = '';
-                } catch (inner) {}
+                try { this._showReadyState(); } catch (inner) {}
               }, 800);
             }
           } catch (e) {}
@@ -696,18 +713,7 @@
               if (scanQty) scanQty.value = String(Number(scanQty.value) + 1).padStart(5, "0");
 
               // Clear visuals after a short delay for final pass
-                setTimeout(() => {
-                passEl.textContent = "READY";
-                passEl.style.background = '';
-                passEl.style.color = '';
-                const sdv = document.getElementById("scan-data-value");
-                if (sdv) sdv.textContent = "";
-                document.getElementById("scan-status-value").textContent = "";
-                document.getElementById("scan-status-value").classList.remove("ok");
-                document.getElementById("part-code-status-value").textContent = "";
-                document.getElementById("part-code-status-value").classList.remove("ok");
-                // Keep passed fields green
-              }, 1000);
+                setTimeout(() => { try { this._showReadyState(); } catch(e) {} }, 1000);
 
               // Final save (optional)
               try {
@@ -841,9 +847,7 @@
                 failedInp.classList.add("scan-pending");
                 try { this.scanSession._manualActive = currentField; if (failedInp.focus) failedInp.focus(); } catch(e) {}
               }
-              const passEl = document.getElementById("pass-status");
-              passEl.textContent = "READY";
-              passEl.classList.remove("failed");
+              try { this._showReadyState(); } catch (e) { const passEl = document.getElementById("pass-status"); if (passEl) { passEl.textContent = "READY"; passEl.classList.remove("failed"); } }
               try { this._updatePanelStatus(); } catch(e) {}
             }
           } catch (e) {

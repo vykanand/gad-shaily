@@ -1450,24 +1450,31 @@
 
             // Change back to READY after 1000ms
             setTimeout(() => {
-              document.getElementById("pass-status").textContent = "READY";
-              document
-                .getElementById("pass-status")
-                .classList.remove("pass-box");
-              // Clear verification status fields when READY is shown
-              document.getElementById("scan-data-value").textContent = "";
-              document
-                .getElementById("scan-data-value")
-                .classList.remove("scanned-success");
-              document.getElementById("scan-status-value").textContent = "";
-              document
-                .getElementById("scan-status-value")
-                .classList.remove("ok");
-              document.getElementById("part-code-status-value").textContent =
-                "";
-              document
-                .getElementById("part-code-status-value")
-                .classList.remove("ok");
+              if (
+                window.scanManager &&
+                typeof window.scanManager._showReadyState === "function"
+              ) {
+                window.scanManager._showReadyState();
+              } else {
+                document.getElementById("pass-status").textContent = "READY";
+                document
+                  .getElementById("pass-status")
+                  .classList.remove("pass-box");
+                // Clear verification status fields when READY is shown
+                document.getElementById("scan-data-value").textContent = "";
+                document
+                  .getElementById("scan-data-value")
+                  .classList.remove("scanned-success");
+                document.getElementById("scan-status-value").textContent = "";
+                document
+                  .getElementById("scan-status-value")
+                  .classList.remove("ok");
+                document.getElementById("part-code-status-value").textContent =
+                  "";
+                document
+                  .getElementById("part-code-status-value")
+                  .classList.remove("ok");
+              }
             }, 1000);
 
             // Highlight the scanned data in green
@@ -1516,10 +1523,17 @@
                 document.getElementById("scan-status-value").textContent = "";
                 document.getElementById("part-code-status-value").textContent =
                   "";
-                document.getElementById("pass-status").textContent = "READY";
-                document
-                  .getElementById("pass-status")
-                  .classList.remove("failed");
+                if (
+                  window.scanManager &&
+                  typeof window.scanManager._showReadyState === "function"
+                ) {
+                  window.scanManager._showReadyState();
+                } else {
+                  document.getElementById("pass-status").textContent = "READY";
+                  document
+                    .getElementById("pass-status")
+                    .classList.remove("failed");
+                }
               }
             });
 
@@ -1812,10 +1826,17 @@
                 document
                   .getElementById("part-code-status-value")
                   .classList.remove("ok");
-                document.getElementById("pass-status").textContent = "READY";
-                document
-                  .getElementById("pass-status")
-                  .classList.remove("failed");
+                if (
+                  window.scanManager &&
+                  typeof window.scanManager._showReadyState === "function"
+                ) {
+                  window.scanManager._showReadyState();
+                } else {
+                  document.getElementById("pass-status").textContent = "READY";
+                  document
+                    .getElementById("pass-status")
+                    .classList.remove("failed");
+                }
                 document
                   .getElementById("btn-scan-data")
                   .classList.remove("failed");
@@ -2528,9 +2549,18 @@
             document
               .getElementById("part-code-status-value")
               .classList.remove("ok");
-            document.getElementById("pass-status").textContent = "READY";
-            document.getElementById("pass-status").classList.remove("failed");
-            document.getElementById("pass-status").classList.remove("pass-box");
+            if (
+              window.scanManager &&
+              typeof window.scanManager._showReadyState === "function"
+            ) {
+              window.scanManager._showReadyState();
+            } else {
+              document.getElementById("pass-status").textContent = "READY";
+              document.getElementById("pass-status").classList.remove("failed");
+              document
+                .getElementById("pass-status")
+                .classList.remove("pass-box");
+            }
 
             hidePartsModal();
             // Start multi-field scan session for the selected part if manager available
