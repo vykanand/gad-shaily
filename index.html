@@ -637,6 +637,7 @@
         scanOperation: "equals",
         displayField: "", // Field ID to display prominently in master modal list
         removedHeaders: [],
+        showMultiScanPanel: true,
       };
 
       // Session state for multi-field verification
@@ -1015,6 +1016,11 @@
             settings.scanOperation = parsed.scanOperation;
           if (parsed.displayField) settings.displayField = parsed.displayField;
 
+          // Support toggling the multi-scan panel visibility
+          if (typeof parsed.showMultiScanPanel !== "undefined") {
+            settings.showMultiScanPanel = !!parsed.showMultiScanPanel;
+          }
+
           // Support removed/hidden headers list
           if (Array.isArray(parsed.removedHeaders))
             settings.removedHeaders = parsed.removedHeaders;
@@ -1045,6 +1051,24 @@
           );
 
           console.log("Settings loaded:", settings);
+          // Apply persisted UI controls immediately so visibility is consistent across restarts
+          try {
+            const chk = document.getElementById("show-multi-scan-panel");
+            if (chk)
+              chk.checked =
+                typeof settings.showMultiScanPanel === "undefined"
+                  ? true
+                  : !!settings.showMultiScanPanel;
+            const panel = document.getElementById("multi-scan-panel");
+            if (panel)
+              panel.style.display =
+                settings.showMultiScanPanel === false ? "none" : "block";
+          } catch (e) {
+            console.error(
+              "Failed to apply showMultiScanPanel to UI elements",
+              e
+            );
+          }
         } catch (error) {
           console.error("Error loading settings:", error);
         }
@@ -1060,6 +1084,7 @@
             displayField: settings.displayField || "",
             displayFields: settings.displayFields || [],
             removedHeaders: settings.removedHeaders || [],
+            showMultiScanPanel: !!settings.showMultiScanPanel,
           };
           fs.writeFileSync(
             "settings.json",
@@ -2943,9 +2968,25 @@
           settings.displayField = settings.displayFields[0] || "";
           settings.scanOperation =
             document.getElementById("scan-op-select").value || "equals";
+          // Read showMultiScanPanel checkbox state
+          const showMulti = document.getElementById("show-multi-scan-panel");
+          if (showMulti) settings.showMultiScanPanel = !!showMulti.checked;
           saveSettings();
           rebuildInputUI();
           document.getElementById("settings-modal").style.display = "none";
+          // Apply visibility immediately to the multi-scan panel if manager exists
+          try {
+            if (window.scanManager) {
+              const panel = document.getElementById("multi-scan-panel");
+              if (panel)
+                panel.style.display =
+                  settings.showMultiScanPanel === false ? "none" : "block";
+              try {
+                window.scanManager._updatePanelStatus &&
+                  window.scanManager._updatePanelStatus();
+              } catch (e) {}
+            }
+          } catch (e) {}
         } // Hook up settings buttons
         document
           .getElementById("btn-settings")
@@ -3227,6 +3268,64 @@
         };
       });
     </script>
+
+    <script>
+      // Initialize the Show Multi-scan Panel checkbox and persist changes immediately
+      document.addEventListener("DOMContentLoaded", function () {
+        try {
+          const chk = document.getElementById("show-multi-scan-panel");
+          if (!chk) return;
+          // initialize checked state from settings (default true)
+          try {
+            chk.checked =
+              typeof settings.showMultiScanPanel === "undefined"
+                ? true
+                : !!settings.showMultiScanPanel;
+          } catch (e) {
+            chk.checked = true;
+          }
+
+          // apply initial visibility to the panel if present
+          try {
+            const panel = document.getElementById("multi-scan-panel");
+            if (panel) panel.style.display = chk.checked ? "block" : "none";
+          } catch (e) {}
+
+          // Persist and apply change immediately when user toggles the checkbox
+          chk.addEventListener("change", function () {
+            try {
+              settings.showMultiScanPanel = !!chk.checked;
+              // persist setting to disk
+              try {
+                saveSettings();
+              } catch (e) {
+                console.error("Failed to save settings on toggle", e);
+              }
+              // show/hide the actual panel element
+              try {
+                const panel = document.getElementById("multi-scan-panel");
+                if (panel)
+                  panel.style.display = settings.showMultiScanPanel
+                    ? "block"
+                    : "none";
+              } catch (e) {}
+              // update visuals if manager present
+              try {
+                if (
+                  window.scanManager &&
+                  typeof window.scanManager._updatePanelStatus === "function"
+                )
+                  window.scanManager._updatePanelStatus();
+              } catch (e) {}
+            } catch (e) {
+              console.error("Error handling showMultiScanPanel change", e);
+            }
+          });
+        } catch (e) {
+          console.error("init show-multi-scan-panel failed", e);
+        }
+      });
+    </script>
   </head>
   <body>
     <div id="app-container" class="container">
@@ -3285,19 +3384,29 @@
         </section>
 
         <aside id="status-section" class="right-section">
-          <div id="scan-qty-box" class="info-box">
-            <label for="scan-qty">Scan Qty</label>
-            <input type="text" id="scan-qty" value="00000" readonly />
-          </div>
+          <div
+            id="datetime-box"
+            style="
+              display: flex;
+              gap: 8px;
+              flex-wrap: wrap;
+              align-items: center;
+            "
+          >
+            <div id="scan-qty-box" class="info-box">
+              <label for="scan-qty">Scan Qty</label>
+              <input type="text" id="scan-qty" value="00000" readonly />
+            </div>
 
-          <div id="date-box" class="info-box">
-            <label for="date">Date</label>
-            <input type="text" id="date" value="13-09-2025" readonly />
-          </div>
+            <div id="date-box" class="info-box">
+              <label for="date">Date</label>
+              <input type="text" id="date" value="13-09-2025" readonly />
+            </div>
 
-          <div id="time-box" class="info-box">
-            <label for="time">Time</label>
-            <input type="text" id="time" value="15:44:22" readonly />
+            <div id="time-box" class="info-box">
+              <label for="time">Time</label>
+              <input type="text" id="time" value="15:44:22" readonly />
+            </div>
           </div>
 
           <div id="overall-status" class="status">Over All Scan Status</div>
@@ -3546,6 +3655,17 @@
               <option value="startsWith">Starts With</option>
               <option value="regex">Regex</option>
             </select>
+            <label
+              style="
+                min-width: 160px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+              "
+            >
+              <input type="checkbox" id="show-multi-scan-panel" /> Show
+              Multi-scan Panel
+            </label>
           </div>
           <div
             style="

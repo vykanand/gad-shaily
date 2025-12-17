@@ -263,6 +263,11 @@
         if (document.getElementById('multi-scan-panel')) return;
         const container = document.createElement('div');
         container.id = 'multi-scan-panel';
+        // Respect global setting to show/hide the panel by default
+        try {
+          const hide = (window.settings && window.settings.showMultiScanPanel === false);
+          container.style.display = hide ? 'none' : 'block';
+        } catch (e) { container.style.display = 'block'; }
         container.style.padding = '10px';
         container.style.marginTop = '12px';
         container.style.background = 'linear-gradient(90deg,#002b55, #003b77)';
@@ -282,7 +287,12 @@
 
         // Try to insert into right-section or fallback to body
         const right = document.getElementById('status-section') || document.getElementById('main-content') || document.body;
-        right.appendChild(container);
+          // insert panel at top of right section so it appears above datetime/info boxes
+          if (right.firstChild) {
+            right.prepend(container);
+          } else {
+            right.appendChild(container);
+          }
       } catch (e) {
         console.error('scanManager._ensurePanelExists error', e);
       }
@@ -363,13 +373,13 @@
             if (allPassed) {
               // Final overall pass - green
               stateEl.textContent = 'PASSED';
-              stateEl.style.color = '#022';
+              stateEl.style.color = '#006400';
               item.style.background = 'rgba(0,200,83,0.12)';
               if (icon) icon.style.background = '#00c853';
             } else {
               // Intermediate per-field pass: show yellow so operator sees progress
               stateEl.textContent = 'PASSED';
-              stateEl.style.color = '#000';
+              stateEl.style.color = '#006400';
               item.style.background = 'rgba(255,213,79,0.16)';
               if (icon) icon.style.background = '#ffd54f';
             }
@@ -378,7 +388,7 @@
             if (inp && inp.classList.contains('scan-active')) {
               // Use yellow visual for active scanning (operator-friendly)
               stateEl.textContent = 'SCANNING';
-              stateEl.style.color = '#000000';
+              stateEl.style.color = '#ffd54f';
               item.style.background = 'rgba(255,213,79,0.16)';
               if (icon) icon.style.background = '#ffd54f';
             } else if (inp && inp.classList.contains('scan-failed')) {
@@ -816,3 +826,30 @@
   // Expose globally
   window.scanManager = scanManager;
 })();
+
+// Ensure panel exists on initial load so operators and debuggers can see it
+try {
+  document.addEventListener('DOMContentLoaded', function () {
+    try {
+      if (window.scanManager && typeof window.scanManager._ensurePanelExists === 'function') {
+        window.scanManager._ensurePanelExists();
+        const panel = document.getElementById('multi-scan-panel');
+        if (panel) {
+          // Respect settings when showing the panel on DOMContentLoaded
+          try {
+            const hide = (window.settings && window.settings.showMultiScanPanel === false);
+            panel.style.display = hide ? 'none' : 'block';
+          } catch (e) { panel.style.display = 'block'; }
+          try {
+            const overall = document.getElementById('multi-scan-overall');
+            if (overall) overall.textContent = 'No Session';
+          } catch (e) {}
+        }
+      }
+    } catch (e) {
+      console.error('scanManager: failed creating panel on DOMContentLoaded', e);
+    }
+  });
+} catch (e) {
+  /* not critical */
+}
