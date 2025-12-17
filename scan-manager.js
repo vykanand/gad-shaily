@@ -21,7 +21,7 @@
                 const resolved = window.findPartDetails(primaryVal);
                 if (resolved) {
                   this.scanSession.targetPart = resolved;
-                  console.info && console.info('scanManager: auto-resolved targetPart from primary input', primaryId, primaryVal);
+                  // auto-resolved targetPart from primary input (no console output per final-only logging)
                     // Populate input fields from resolved targetPart so UI and logs have values
                     try {
                       const fields = (window.settings && window.settings.fields) || [];
@@ -52,16 +52,16 @@
           const pf = window.settings && window.settings.primaryFields;
           if (Array.isArray(pf) && pf.length > 0) {
             req = pf.slice();
-            console.info && console.info('scanManager: primaryFields taken from window.settings.primaryFields');
+            // primaryFields sourced from window.settings.primaryFields (silent)
           } else if (typeof pf === 'string' && pf.trim()) {
             req = pf.split(',').map(s => s.trim()).filter(Boolean);
-            console.info && console.info('scanManager: primaryFields parsed from window.settings.primaryFields (string)');
+            // primaryFields parsed from window.settings.primaryFields (string) (silent)
           } else {
             // Check legacy singular key
             const pfSing = window.settings && (window.settings.primaryField || window.settings.primary_field);
             if (pfSing && typeof pfSing === 'string' && pfSing.trim()) {
               req = [pfSing.trim()];
-              console.info && console.info('scanManager: primaryFields derived from legacy window.settings.primaryField');
+              // primaryFields derived from legacy window.settings.primaryField (silent)
             }
           }
         } catch (e) {
@@ -79,10 +79,10 @@
                 const parsed = JSON.parse(xhr.responseText || '{}');
                 if (Array.isArray(parsed.primaryFields) && parsed.primaryFields.length > 0) {
                   req = parsed.primaryFields.slice();
-                  console.info && console.info('scanManager: primaryFields loaded from settings.json fallback');
+                  // primaryFields loaded from settings.json fallback (silent)
                 } else if (typeof parsed.primaryField === 'string' && parsed.primaryField.trim()) {
                   req = [parsed.primaryField.trim()];
-                  console.info && console.info('scanManager: primaryFields derived from settings.json.primaryField (legacy)');
+                  // primaryFields derived from settings.json.primaryField (legacy) (silent)
                 }
               } catch (e) {
                 console.warn && console.warn('scanManager: settings.json parse failed', e);
@@ -110,7 +110,7 @@
                       window.settings = window.settings || {};
                       window.settings.fields = parsed.fields.slice();
                       settingFields = window.settings.fields;
-                      console.info && console.info('scanManager: populated window.settings.fields from settings.json fallback');
+                      // populated window.settings.fields from settings.json fallback (silent)
                     }
                   } catch (e) {
                     console.warn && console.warn('scanManager: parse settings.json failed', e);
@@ -151,18 +151,8 @@
 
         // Log selected required fields and settings snapshot for diagnostics, including label mapping
         try {
-          console.info && console.info('scanManager: primaryFields selected for session:', req);
+          // primaryFields and settings.fields info suppressed to avoid intermediate logging
           const sf = window.settings && window.settings.fields;
-          console.info && console.info('scanManager: settings.fields snapshot', {
-            count: Array.isArray(sf) ? sf.length : 0,
-            sample: Array.isArray(sf) ? sf.slice(0, 6).map((s) => ({ id: s.id, label: s.label })) : [],
-          });
-          // map ids to labels (use id if label missing)
-          const mapped = (req || []).map((id) => {
-            const def = (sf || []).find((f) => f.id === id) || null;
-            return { id, label: def ? def.label : null };
-          });
-          console.info && console.info('scanManager: requiredFields mapped to labels:', mapped);
         } catch (e) {}
         this.scanSession.requiredFields = req;
         this._ensurePanelExists();
@@ -247,7 +237,7 @@
             next.classList.remove("scan-pending");
             next.classList.add("scan-active");
             try { next.focus(); } catch (e) {}
-          try { const lab = (window.settings && window.settings.fields || []).find(f=>f.id===fid)?.label || fid; console.info && console.info('scanManager: advanced to active field', { id: fid, label: lab }); } catch(e){}
+          try { const lab = (window.settings && window.settings.fields || []).find(f=>f.id===fid)?.label || fid; /* advanced to active field (silent) */ } catch(e){}
           }
           this._updatePanelStatus();
           return fid;
@@ -353,7 +343,7 @@
           el.classList.add('scan-active');
           try { el.focus(); } catch (e) {}
         }
-        try { const lab = (window.settings && window.settings.fields || []).find(f=>f.id===fid)?.label || fid; console.info && console.info('scanManager: manual active field set', { id: fid, label: lab }); } catch(e){}
+        try { const lab = (window.settings && window.settings.fields || []).find(f=>f.id===fid)?.label || fid; /* manual active field set (silent) */ } catch(e){}
         // ensure panel reflects manual active
         try { this._updatePanelStatus(); } catch (e) {}
       } catch (e) {
@@ -459,14 +449,7 @@
           const seqRec = { seq: seqNum, timestamp: new Date(), scannedCode: cleanedCode };
           // attach a temporary current record for enrichment later
           this.scanSession._currentScanRecord = seqRec;
-          console.debug && console.debug('scanManager.handleScan called', {
-            seq: seqNum,
-            cleanedCode,
-            requiredFields: Array.from(this.scanSession.requiredFields || []),
-            matchedFields: Array.from(this.scanSession.matchedFields || []),
-            targetPart: this.scanSession.targetPart ? 'present' : 'null',
-          });
-          console.info && console.info(`scanManager: seq #${seqNum} captured scannedCode='${cleanedCode}'`);
+          // NOTE: per configuration, do not emit debug/console logs for intermediate scans here.
         } catch (e) {}
 
         // Ensure session target
@@ -523,7 +506,7 @@
             } catch(e) {}
           }
           if (!fldLabel) fldLabel = currentField;
-          console.info && console.info('scanManager: activeField selected', { id: currentField, label: fldLabel });
+          // active field determined (no console info emitted per final-only logging policy)
           if (!fldDef) console.warn && console.warn('scanManager: activeField had no matching settings.fields entry', { currentField });
         } catch(e) {}
         if (!currentField) {
@@ -546,7 +529,7 @@
 
         try {
           const fld = (window.settings && window.settings.fields || []).find(f=>f.id===currentField) || {};
-          console.info && console.info('scanManager: Matching field', { currentField, label: fld.label || currentField, expected, cleanedCode });
+          // Matching field (silent)
           // enrich current scan record
           try {
             const rec = this.scanSession._currentScanRecord;
@@ -591,13 +574,6 @@
             inp.classList.add("scan-passed");
           }
 
-          // Save intermediate successful field scan
-          try {
-            if (typeof window.saveScanLogRealtime === 'function') window.saveScanLogRealtime(logEntry);
-          } catch (e) {
-            console.error('saveScanLogRealtime failed:', e);
-          }
-
           // Mark matched and advance
           this.scanSession.matchedFields.add(currentField);
           // finalize and store sequence record
@@ -607,13 +583,13 @@
               rec.matched = true;
               rec.result = 'MATCHED';
               this.scanSession._scanSequence.push(rec);
-              console.info && console.info(`scanManager: seq #${rec.seq} MATCHED field ${rec.fieldId} (${rec.fieldLabel})`);
+              // do not log matched events until final pass
             }
           } catch (e) {}
           // If operator had manually selected this field, clear manual active now
           if (this.scanSession._manualActive === currentField) this.scanSession._manualActive = null;
           const next = this._advanceToNextField();
-          try { console.info && console.info('scanManager: field MATCHED', { id: currentField, label: (window.settings && window.settings.fields || []).find(f=>f.id===currentField)?.label || currentField }); } catch(e){}
+          // Intermediate matched field — do not log to console per final-only logging policy.
           // Refresh panel after marking match
           try { this._updatePanelStatus(); } catch (e) {}
 
@@ -663,6 +639,11 @@
               try {
                 const finalLog = Object.assign({}, logEntry, { matchStatus: 'ALL_FIELDS_MATCHED' });
                 if (typeof window.saveScanLogRealtime === 'function') window.saveScanLogRealtime(finalLog);
+                // Emit consolidated sequence log now that all fields passed
+                try {
+                  console.info && console.info('scanManager: ALL_FIELDS_MATCHED - sequence:', this.scanSession._scanSequence || []);
+                  console.info && console.info('scanManager: finalLog saved', finalLog);
+                } catch (e) {}
               } catch (e) {
                 console.error('final save failed', e);
               }
@@ -677,35 +658,18 @@
             return;
           }
 
-          // For an intermediate successful field (not final), show a short PASS indicator
-          try {
-            const passElSingle = document.getElementById("pass-status");
-            if (passElSingle) {
-              passElSingle.textContent = "PASS";
-              passElSingle.classList.remove('failed');
-              passElSingle.classList.remove('pass-box');
-              passElSingle.classList.add('interim-pass');
-              // Auto-clear the interim yellow after a short delay so operator sees it
-              setTimeout(() => {
-                try {
-                  passElSingle.classList.remove('interim-pass');
-                  passElSingle.textContent = 'READY';
-                } catch (e) {}
-              }, 800);
-            }
-          } catch (e) {}
+          // Intermediate matches update panel only; do not modify verification UI or emit logs here.
 
           return;
         } else {
           // Failed to match current field
-          // finalize and store failed sequence record
+          // finalize and store failed sequence record (do not emit console logs here; keep error saving unchanged)
           try {
             const rec = this.scanSession._currentScanRecord;
             if (rec) {
               rec.matched = false;
               rec.result = 'NOT_MATCHED';
               this.scanSession._scanSequence.push(rec);
-              console.info && console.info(`scanManager: seq #${rec.seq} NOT_MATCHED field ${rec.fieldId} (${rec.fieldLabel}) expected='${rec.expected}' scanned='${rec.scannedCode || rec.scannedCode}'`);
             }
           } catch (e) {}
           try { console.warn && console.warn('scanManager: field NOT_MATCHED', { id: currentField, label: (window.settings && window.settings.fields || []).find(f=>f.id===currentField)?.label || currentField, scanned: cleanedCode, expected }); } catch(e){}
