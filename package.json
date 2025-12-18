@@ -6,25 +6,35 @@
     "start": "electron .",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --win",
-    "build": "electron-builder --win --x64"
+    "build": "npm run make-icon && electron-builder --win --x64 && node scripts/patch-icon.js && npm run copy-build",
+    "copy-build": "node scripts/copy-build.js",
+    "make-icon": "node scripts/make-ico.js"
   },
   "build": {
+    "directories": {
+      "buildResources": "build"
+    },
     "appId": "com.gad.qrscanner",
     "productName": "GAD QR Scanner",
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
-      "icon": "qr.jpeg"
+      "icon": "build/qr.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "installerIcon": "build/qr.ico",
+      "uninstallerIcon": "build/qr.ico",
+      "include": "build/installer.nsh"
     },
     "files": [
       "**/*",
@@ -41,8 +51,17 @@
     ],
     "extraResources": [
       {
+        "from": "build/",
+        "to": "build",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "./",
-        "filter": ["master.xlsx"]
+        "filter": [
+          "master.xlsx"
+        ]
       }
     ]
   },
@@ -51,6 +70,9 @@
   },
   "devDependencies": {
     "electron": "^25.3.1",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "png-to-ico": "^1.0.0",
+    "rcedit": "^4.0.1",
+    "sharp": "^0.32.4"
   }
 }
