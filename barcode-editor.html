@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Barcode Excel Editor</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0f1724;
+        --card: #0b1220;
+        --accent: #7c3aed;
+        --muted: #94a3b8;
+        --glass: rgba(255, 255, 255, 0.04);
+      }
+      * {
+        box-sizing: border-box;
+        font-family: Inter, system-ui, Arial;
+      }
+      body {
+        margin: 0;
+        background: linear-gradient(180deg, #071029 0%, #081229 60%);
+        color: #e6eef8;
+        min-height: 100vh;
+        padding: 32px;
+      }
+      .container {
+        max-width: 980px;
+        margin: 0 auto;
+      }
+      .card {
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.02),
+          transparent
+        );
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 6px 24px rgba(2, 6, 23, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.04);
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+      header h1 {
+        font-size: 20px;
+        margin: 0;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 380px;
+        gap: 18px;
+      }
+      .controls {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      label {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      input[type="text"],
+      input[type="number"],
+      select {
+        width: 100%;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        background: var(--glass);
+        color: inherit;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+      }
+      button {
+        background: linear-gradient(90deg, var(--accent), #4f46e5);
+        border: none;
+        color: white;
+        padding: 10px 12px;
+        border-radius: 10px;
+        cursor: pointer;
+      }
+      button.ghost {
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      .preview {
+        max-height: 420px;
+        overflow: auto;
+        margin-top: 10px;
+        border-radius: 8px;
+        background: #071326;
+        padding: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.02);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      th,
+      td {
+        padding: 6px 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        text-align: left;
+      }
+      th {
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .video-wrap {
+        background: #000;
+        border-radius: 8px;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 200px;
+      }
+      .small {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      footer {
+        margin-top: 12px;
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="card">
+        <header>
+          <div
+            style="
+              width: 56px;
+              height: 56px;
+              border-radius: 10px;
+              background: linear-gradient(90deg, #0ea5a4, #7c3aed);
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-weight: 700;
+            "
+          >
+            BC
+          </div>
+          <div>
+            <h1>Barcode Excel Editor</h1>
+            <div class="small">
+              Scan a barcode to fill fields, then write them into your master
+              Excel file.
+            </div>
+          </div>
+        </header>
+
+        <div class="grid">
+          <div>
+            <div class="controls">
+              <div>
+                <label>Load master Excel file (.xlsx)</label>
+                <input id="fileInput" type="file" accept=".xlsx,.xls" />
+              </div>
+
+              <div class="row">
+                <div style="flex: 1">
+                  <label>Sheet</label>
+                  <select id="sheetSelect"></select>
+                </div>
+                <div style="width: 110px">
+                  <label>Row #</label>
+                  <input id="rowNumber" type="number" min="1" value="2" />
+                </div>
+              </div>
+
+              <div class="row">
+                <div style="flex: 1">
+                  <label>Wire number (column)</label>
+                  <input id="colWire" type="text" value="A" />
+                </div>
+                <div style="width: 120px">
+                  <label>Terminal 1 (col)</label>
+                  <input id="colT1" type="text" value="B" />
+                </div>
+                <div style="width: 120px">
+                  <label>Terminal 2 (col)</label>
+                  <input id="colT2" type="text" value="C" />
+                </div>
+              </div>
+
+              <div>
+                <label>Wire number (from barcode)</label>
+                <input
+                  id="wireInput"
+                  type="text"
+                  placeholder="Scan or type barcode"
+                />
+              </div>
+
+              <div class="row">
+                <div style="flex: 1">
+                  <label>Terminal 1 value</label>
+                  <input id="term1" type="text" placeholder="Terminal 1" />
+                </div>
+                <div style="flex: 1">
+                  <label>Terminal 2 value</label>
+                  <input id="term2" type="text" placeholder="Terminal 2" />
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 8px; align-items: center">
+                <button id="applyBtn">Apply to row</button>
+                <button id="downloadBtn" class="ghost">
+                  Download updated Excel
+                </button>
+              </div>
+            </div>
+
+            <div class="preview" id="preview"></div>
+          </div>
+
+          <aside>
+            <div style="display: flex; flex-direction: column; gap: 10px">
+              <div>
+                <label>Camera scanner</label>
+                <div class="video-wrap">
+                  <video
+                    id="video"
+                    width="320"
+                    height="180"
+                    style="width: 100%; height: 100%; object-fit: cover"
+                    muted
+                  ></video>
+                </div>
+                <div style="display: flex; gap: 8px; margin-top: 8px">
+                  <button id="startScan">Start</button>
+                  <button id="stopScan" class="ghost">Stop</button>
+                </div>
+                <div class="small" style="margin-top: 8px">
+                  Tip: allow camera access. Scanned value fills the Wire number
+                  above.
+                </div>
+              </div>
+
+              <div>
+                <label>Quick actions</label>
+                <div
+                  style="
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    margin-top: 8px;
+                  "
+                >
+                  <button id="fillRowFromInputs" class="ghost">
+                    Fill preview row from fields
+                  </button>
+                  <button id="clearPreview" class="ghost">Clear preview</button>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <footer>
+          <div class="small">
+            Built with SheetJS and ZXing — simple editor for master Excel rows.
+          </div>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Libraries -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/@zxing/library@0.18.6/umd/index.min.js"></script>
+
+    <script>
+      let workbook = null;
+      let currentSheet = null;
+      const fileInput = document.getElementById("fileInput");
+      const sheetSelect = document.getElementById("sheetSelect");
+      const preview = document.getElementById("preview");
+      const rowNumber = document.getElementById("rowNumber");
+      const colWire = document.getElementById("colWire");
+      const colT1 = document.getElementById("colT1");
+      const colT2 = document.getElementById("colT2");
+      const wireInput = document.getElementById("wireInput");
+      const term1 = document.getElementById("term1");
+      const term2 = document.getElementById("term2");
+      const applyBtn = document.getElementById("applyBtn");
+      const downloadBtn = document.getElementById("downloadBtn");
+
+      fileInput.addEventListener("change", async (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        const data = await f.arrayBuffer();
+        workbook = XLSX.read(data, { type: "array" });
+        populateSheets();
+        renderPreview();
+      });
+
+      function populateSheets() {
+        sheetSelect.innerHTML = "";
+        workbook.SheetNames.forEach((name) => {
+          const opt = document.createElement("option");
+          opt.value = name;
+          opt.textContent = name;
+          sheetSelect.appendChild(opt);
+        });
+        currentSheet = workbook.SheetNames[0];
+        sheetSelect.value = currentSheet;
+      }
+
+      sheetSelect.addEventListener("change", () => {
+        currentSheet = sheetSelect.value;
+        renderPreview();
+      });
+      rowNumber.addEventListener("change", renderPreview);
+
+      function renderPreview() {
+        if (!workbook) {
+          preview.innerHTML = '<div class="small">No workbook loaded</div>';
+          return;
+        }
+        const ws = workbook.Sheets[currentSheet];
+        const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false });
+        // show first 50 rows as table
+        let html = "<table><thead><tr>";
+        const firstRow = aoa[0] || [];
+        const cols = Math.max(...aoa.map((r) => r.length));
+        for (let c = 0; c < cols; c++)
+          html += "<th>" + (firstRow[c] ?? "") + "</th>";
+        html += "</tr></thead><tbody>";
+        for (let r = 0; r < Math.min(50, aoa.length); r++) {
+          html += '<tr data-row="' + (r + 1) + '">';
+          for (let c = 0; c < cols; c++)
+            html +=
+              "<td>" +
+              (aoa[r] && aoa[r][c] !== undefined ? aoa[r][c] : "") +
+              "</td>";
+          html += "</tr>";
+        }
+        html += "</tbody></table>";
+        preview.innerHTML = html;
+      }
+
+      function setCell(sheet, col, row, value) {
+        const addr = (col || "") + row;
+        sheet[addr] = { t: "s", v: String(value === undefined ? "" : value) };
+        // update range
+        const range = XLSX.utils.decode_range(sheet["!ref"] || "A1:" + addr);
+        const daddr = XLSX.utils.decode_cell(addr);
+        if (daddr.r > range.e.r) range.e.r = daddr.r;
+        if (daddr.c > range.e.c) range.e.c = daddr.c;
+        sheet["!ref"] = XLSX.utils.encode_range(range);
+      }
+
+      applyBtn.addEventListener("click", () => {
+        if (!workbook) return alert("Load an Excel file first");
+        const ws = workbook.Sheets[currentSheet];
+        const r = Number(rowNumber.value);
+        if (!r || r < 1) return alert("Invalid row number");
+        setCell(ws, colWire.value.trim().toUpperCase(), r, wireInput.value);
+        setCell(ws, colT1.value.trim().toUpperCase(), r, term1.value);
+        setCell(ws, colT2.value.trim().toUpperCase(), r, term2.value);
+        renderPreview();
+        alert("Row updated in memory. Click Download to save the file.");
+      });
+
+      downloadBtn.addEventListener("click", () => {
+        if (!workbook) return alert("Load an Excel file first");
+        const wbout = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+        const blob = new Blob([wbout], { type: "application/octet-stream" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "master-updated.xlsx";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      });
+
+      // Fill preview row from current inputs
+      document
+        .getElementById("fillRowFromInputs")
+        .addEventListener("click", () => {
+          const r = Number(rowNumber.value);
+          if (!r) return;
+          const cols = [
+            colWire.value.trim().toUpperCase(),
+            colT1.value.trim().toUpperCase(),
+            colT2.value.trim().toUpperCase(),
+          ];
+          if (!workbook) {
+            preview.innerHTML = `<div class=\"small\">Preview (not saved) — row ${r}: ${cols[0]}=${wireInput.value}, ${cols[1]}=${term1.value}, ${cols[2]}=${term2.value}</div>`;
+            return;
+          }
+          const ws = workbook.Sheets[currentSheet];
+          setCell(ws, cols[0], r, wireInput.value);
+          setCell(ws, cols[1], r, term1.value);
+          setCell(ws, cols[2], r, term2.value);
+          renderPreview();
+        });
+
+      document.getElementById("clearPreview").addEventListener("click", () => {
+        preview.innerHTML = "";
+      });
+
+      // ZXing camera scanning
+      const codeReader = new ZXing.BrowserMultiFormatReader();
+      const videoElem = document.getElementById("video");
+      let activeStream = false;
+      document
+        .getElementById("startScan")
+        .addEventListener("click", async () => {
+          try {
+            const devices = await codeReader.listVideoInputDevices();
+            const deviceId = devices.length ? devices[0].deviceId : undefined;
+            codeReader.decodeFromVideoDevice(
+              deviceId,
+              videoElem,
+              (result, err) => {
+                if (result) {
+                  wireInput.value = result.text; /* optional: auto-apply */
+                }
+              }
+            );
+            activeStream = true;
+          } catch (e) {
+            alert("Camera access failed: " + e.message);
+          }
+        });
+      document.getElementById("stopScan").addEventListener("click", () => {
+        try {
+          codeReader.reset();
+          activeStream = false;
+        } catch (e) {}
+      });
+
+      // allow pressing Enter in wire input to focus terminal1
+      wireInput.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") {
+          term1.focus();
+        }
+      });
+    </script>
+  </body>
+</html>
