@@ -573,12 +573,25 @@
           return;
         }
 
-        // Determine current active field: prefer manual active if set and not matched
+        // Determine current active field:
+        // - prefer manual active if set and not yet matched
+        // - then prefer a DOM element that currently has the `scan-active` class (keeps UI + logic in sync)
+        // - fall back to the first required field that is not yet matched
         let currentField = null;
         if (this.scanSession._manualActive && !this.scanSession.matchedFields.has(this.scanSession._manualActive)) {
           currentField = this.scanSession._manualActive;
         } else {
-          currentField = required.find((f) => !this.scanSession.matchedFields.has(f));
+          try {
+            // look for an active input element among required fields
+            const domActive = (required || []).map(id => document.getElementById(id)).find(el => el && el.classList && el.classList.contains('scan-active'));
+            if (domActive && domActive.id && !this.scanSession.matchedFields.has(domActive.id)) {
+              currentField = domActive.id;
+            } else {
+              currentField = required.find((f) => !this.scanSession.matchedFields.has(f));
+            }
+          } catch (e) {
+            currentField = required.find((f) => !this.scanSession.matchedFields.has(f));
+          }
         }
         try {
           const fldDef = (window.settings && window.settings.fields || []).find(ff=>ff.id===currentField) || null;
