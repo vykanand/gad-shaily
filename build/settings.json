@@ -40,7 +40,9 @@
   "displayField": "field_1",
   "displayFields": [
     "field_1",
-    "field_3"
+    "field_3",
+    "field_1765883633139",
+    "field_1765883644031"
   ],
   "removedHeaders": [
     {
@@ -53,5 +55,6 @@
       "col": "E",
       "norm": "CUTTING LENGTH ± 5 MM"
     }
-  ]
+  ],
+  "showMultiScanPanel": false
 }
