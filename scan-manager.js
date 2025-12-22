@@ -519,6 +519,103 @@
       }
     },
 
+    // Create and show a final-pass modal with a large green proceed button
+    _ensureFinalPassModalExists: function () {
+      try {
+        if (document.getElementById('final-pass-modal')) return;
+        const overlay = document.createElement('div');
+        overlay.id = 'final-pass-modal';
+        overlay.style.position = 'fixed';
+        overlay.style.left = '0';
+        overlay.style.top = '0';
+        overlay.style.width = '100%';
+        overlay.style.height = '100%';
+        overlay.style.zIndex = 100000;
+        overlay.style.display = 'none';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        overlay.style.background = 'rgba(0,0,0,0.45)';
+
+        const box = document.createElement('div');
+        box.style.maxWidth = '720px';
+        box.style.width = '90%';
+        box.style.padding = '28px';
+        box.style.borderRadius = '12px';
+        box.style.textAlign = 'center';
+        box.style.background = 'linear-gradient(180deg,#003b2f,#006633)';
+        box.style.boxShadow = '0 8px 30px rgba(0,0,0,0.6)';
+
+        const msg = document.createElement('div');
+        msg.style.fontSize = '20px';
+        msg.style.fontWeight = '700';
+        msg.style.color = '#e8f5e9';
+        msg.style.marginBottom = '18px';
+        msg.textContent = 'PREVIOUS SCAN WAS FULL PASS (PROCEED)?';
+
+        const btn = document.createElement('button');
+        btn.id = 'final-pass-proceed-btn';
+        btn.textContent = 'PREVIOUS SCAN WAS FULL PASS (PROCEED)';
+        btn.style.background = 'linear-gradient(90deg,#00c853,#66bb6a)';
+        btn.style.border = 'none';
+        btn.style.color = '#022';
+        btn.style.fontSize = '20px';
+        btn.style.fontWeight = '900';
+        btn.style.padding = '18px 28px';
+        btn.style.borderRadius = '10px';
+        btn.style.cursor = 'pointer';
+        btn.style.boxShadow = '0 8px 20px rgba(0,200,83,0.18)';
+
+        btn.addEventListener('click', () => {
+          try { this._onFinalPassProceed(); } catch (e) { console.error(e); }
+        });
+
+        box.appendChild(msg);
+        box.appendChild(btn);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+      } catch (e) {
+        console.error('scanManager: failed creating final-pass modal', e);
+      }
+    },
+
+    _showFinalPassModal: function () {
+      try {
+        this._ensureFinalPassModalExists();
+        const modal = document.getElementById('final-pass-modal');
+        if (!modal) return;
+        modal.style.display = 'flex';
+        const btn = document.getElementById('final-pass-proceed-btn');
+        try { if (btn) btn.focus(); } catch (e) {}
+      } catch (e) { console.error('scanManager._showFinalPassModal error', e); }
+    },
+
+    _hideFinalPassModal: function () {
+      try {
+        const modal = document.getElementById('final-pass-modal');
+        if (modal) modal.style.display = 'none';
+      } catch (e) { console.error('scanManager._hideFinalPassModal error', e); }
+    },
+
+    _onFinalPassProceed: function () {
+      try {
+        // Hide modal
+        this._hideFinalPassModal();
+        // Reset session state for next sequential scan
+        this.scanSession.matchedFields = new Set();
+        this.scanSession._manualActive = null;
+        this.scanSession._scanSequence = [];
+        this.scanSession._currentScanRecord = null;
+        // Re-init session target to allow next scan to pick up fresh target (if selection changed)
+        try { this.startSessionForCurrentPart(); } catch (e) {}
+        // Update UI to show ready/pending first field
+        try { this._highlightPendingFields(); } catch (e) {}
+        try { this._updatePanelStatus(); } catch (e) {}
+        try { this._showReadyState(); } catch (e) {}
+      } catch (e) {
+        console.error('scanManager._onFinalPassProceed error', e);
+      }
+    },
+
 
     handleScan: async function (scannedCode) {
       try {
@@ -547,6 +644,34 @@
             return;
           }
         }
+
+        // If primary/selected part changed since the last scan, reset the session so expected values update.
+        try {
+          const primaryId = (typeof window.getPrimaryFieldId === 'function' && window.getPrimaryFieldId()) || (window.settings?.primaryFields?.[0]) || '';
+          const readPrimaryFromRow = (row) => {
+            try {
+              if (!row) return '';
+              if (typeof window.getPrimaryValue === 'function') return window.getPrimaryValue(row) || '';
+              if (typeof window.getValueFromRow === 'function') return window.getValueFromRow(row, primaryId) || '';
+              return '';
+            } catch (e) { return ''; }
+          };
+
+          const currentSelectedPrimary = window.currentSelectedRow ? readPrimaryFromRow(window.currentSelectedRow) : (primaryId ? (document.getElementById(primaryId)?.value || '') : '');
+          const sessionPrimary = this.scanSession.targetPart ? readPrimaryFromRow(this.scanSession.targetPart) : '';
+          if ((currentSelectedPrimary || '') !== (sessionPrimary || '')) {
+            // selection changed -> re-init session to pick up new expected values
+            try {
+              this.scanSession.targetPart = null;
+              this.scanSession.matchedFields = new Set();
+              this.scanSession._manualActive = null;
+              this.scanSession._scanSequence = [];
+              this.startSessionForCurrentPart();
+            } catch (e) {
+              safeLog.warn && safeLog.warn('scanManager: failed to reset session after selection change', e);
+            }
+          }
+        } catch (e) { /* best-effort */ }
 
         let required = this.scanSession.requiredFields || [];
         // If required fields are not yet initialized, try to start a session now
@@ -758,10 +883,9 @@
               console.error('Error showing PASS UI:', e);
             }
 
-            // Preserve passed highlights briefly, then reset matched fields and re-highlight first field
+            // Preserve passed highlights briefly, then show proceed modal so operator can continue
             try { this._updatePanelStatus(); } catch (e) {}
-            // Reset matched fields and UI but keep the panel visible for subsequent scans
-            try { this._clearPanelAfterDelay(1200, true, false); } catch (e) {}
+            try { this._showFinalPassModal(); } catch (e) { console.error('failed to show final-pass modal', e); }
             return;
           }
 
