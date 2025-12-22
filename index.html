@@ -618,13 +618,13 @@
     </style>
     <script>
       // Configuration
-      const showSettings = false; // Set to false to hide settings button
+      const showSettings = true; // Set to false to hide settings button
 
       // Electron preload: require ipcRenderer for backend communication
       const { ipcRenderer } = require("electron");
       const fs = require("node:fs");
       const path = require("node:path");
-      // Main application variables
+      // Main application variablesW
       let masterData = [];
       let availableHeaders = [];
       let headerInfos = []; // Array of { name, col, norm }
@@ -660,12 +660,26 @@
           // Get the headers from the first row
           const headers = rawData[0] || [];
           availableHeaders = headers.map((h) => String(h || ""));
-          // Build headerInfos with column addresses
-          headerInfos = headers.map((h, idx) => ({
-            name: String(h || ""),
-            col: columnLetter(idx),
-            norm: normalizeHeader(String(h || "")),
-          }));
+          // Build headerInfos with column addresses and unique keys to avoid duplicate header names
+          // First compute normalized name counts so we can make duplicate-safe keys
+          const rawHeaderNames = headers.map((h) => String(h || ""));
+          const normCounts = rawHeaderNames.reduce((acc, name) => {
+            const n = normalizeHeader(name || "");
+            acc[n] = (acc[n] || 0) + 1;
+            return acc;
+          }, {});
+
+          headerInfos = rawHeaderNames.map((h, idx) => {
+            const name = String(h || "");
+            const col = columnLetter(idx);
+            const norm = normalizeHeader(name || "");
+            let uniqueKey = name;
+            if (normCounts[norm] > 1) {
+              // duplicate normalized header name -> make unique by appending column
+              uniqueKey = `${name}__${col}`;
+            }
+            return { name, col, norm, uniqueKey };
+          });
           console.log("Headers found:", headers, "headerInfos:", headerInfos);
 
           // Build masterData rows as objects keyed by column letter, header name and normalized header
@@ -678,14 +692,19 @@
                   name: "",
                   col: columnLetter(i),
                   norm: "",
+                  uniqueKey: columnLetter(i),
                 };
                 const val =
                   rowArr[i] !== undefined && rowArr[i] !== null
                     ? String(rowArr[i])
                     : "";
+                // Always store by column address
                 obj[h.col] = val;
+                // Store by original name and normalized name for compatibility
                 obj[h.name] = val;
                 obj[h.norm] = val;
+                // Also store under uniqueKey to avoid collisions when headers duplicate
+                if (h.uniqueKey) obj[h.uniqueKey] = val;
               }
               return obj;
             })
@@ -695,19 +714,148 @@
 
           console.log("Processed masterData rows:", masterData.length);
 
+          // Provide detailed debug snapshot for developers to inspect what was loaded
+          try {
+            window._masterDataDebug = window._masterDataDebug || {};
+            window._masterDataDebug.loadedAt = new Date();
+            window._masterDataDebug.rawHeaders = headers.slice();
+            window._masterDataDebug.headerInfos = headerInfos.map((h) =>
+              Object.assign({}, h)
+            );
+            window._masterDataDebug.rowCount = masterData.length;
+            window._masterDataDebug.sampleRows = masterData
+              .slice(0, 20)
+              .map((r) => Object.assign({}, r));
+
+            console.info("MasterData debug snapshot:", {
+              loadedAt: window._masterDataDebug.loadedAt,
+              rowCount: window._masterDataDebug.rowCount,
+              headers: window._masterDataDebug.rawHeaders,
+              headerInfos: window._masterDataDebug.headerInfos,
+            });
+
+            // Friendly helper to print a formatted table in DevTools
+            window.printMasterDataDebug = function (maxRows = 20) {
+              try {
+                console.groupCollapsed("MasterData Debug");
+                console.info("Loaded at:", window._masterDataDebug.loadedAt);
+                console.info("Row count:", window._masterDataDebug.rowCount);
+                console.info(
+                  "Header infos:",
+                  window._masterDataDebug.headerInfos
+                );
+                // show masterData preview
+                const rows = masterData
+                  .slice(0, Number(maxRows) || 20)
+                  .map((r, i) => Object.assign({ __rowIndex: i }, r));
+                console.table(rows);
+                // show the full loaded rows count and where to access them
+                console.info(
+                  "To inspect all loaded rows use window._masterDataDebug.sampleRows or window._masterDataDebug (full snapshot)"
+                );
+                // show last rendered parts list for modal (if available)
+                if (window._masterDataDebug.lastRenderedParts) {
+                  console.info("Last rendered parts list (modal):");
+                  console.table(
+                    window._masterDataDebug.lastRenderedParts.map((p, i) =>
+                      Object.assign({ __idx: i }, p)
+                    )
+                  );
+                } else {
+                  console.info(
+                    "No parts list snapshot available yet. Open the modal to populate lastRenderedParts."
+                  );
+                }
+                console.groupEnd();
+              } catch (e) {
+                console.error("printMasterDataDebug error", e);
+              }
+            };
+          } catch (e) {
+            console.warn("Failed to create masterData debug snapshot", e);
+          }
+
           // Load saved settings if available and apply
           loadSettings();
+
+          // Detect if headers changed compared to saved settings.fields mapping.
+          // If mismatch found, reset settings to defaults based on detected headers
+          // and open the settings modal so the operator can confirm mappings.
+          try {
+            const loadedNorms = (headerInfos || []).map((h) => h.norm);
+            const savedFieldHeaders = (settings.fields || []).map((f) => ({
+              header: normalizeHeader(f.header || ""),
+              col: f.headerCol || "",
+            }));
+            const mismatch = savedFieldHeaders.some((hf) => {
+              // empty saved mapping -> ignore
+              if (!hf.header && !hf.col) return false;
+              // if headerCol still exists in detected headers, that's fine
+              if (hf.col && (headerInfos || []).find((h) => h.col === hf.col))
+                return false;
+              // if header name normalized exists, that's fine
+              if (hf.header && loadedNorms.includes(hf.header)) return false;
+              // otherwise it's a mismatch
+              return true;
+            });
+
+            if (mismatch) {
+              console.warn(
+                "Detected header mismatch between master file and saved settings - resetting settings and opening mappings UI"
+              );
+              // Reset settings to defaults based on headerInfos
+              settings.fields = (headerInfos || []).map((h, i) => ({
+                id: `field_${i}`,
+                label: h.name || h.col || `Col ${h.col}`,
+                header: h.name || "",
+                headerCol: h.col || "",
+              }));
+              settings.primaryFields = settings.fields.length
+                ? [settings.fields[0].id]
+                : [];
+              settings.displayFields =
+                settings.fields.length > 1
+                  ? [settings.fields[0].id, settings.fields[1].id]
+                  : settings.fields.map((f) => f.id);
+              settings.scanOperation = "equals";
+              settings.displayField = settings.displayFields[0] || "";
+              settings.removedHeaders = [];
+              settings.showMultiScanPanel = true;
+              try {
+                saveSettings();
+              } catch (e) {
+                console.warn("Failed to save reset settings", e);
+              }
+              // Open settings modal to let operator confirm and adjust mappings
+              try {
+                if (typeof openSettingsModal === "function")
+                  setTimeout(() => {
+                    openSettingsModal().catch(() => {});
+                  }, 120);
+              } catch (e) {
+                console.warn(
+                  "Failed to open settings modal after header change",
+                  e
+                );
+              }
+            }
+          } catch (e) {
+            console.warn("Header mismatch detection failed", e);
+          }
 
           // Reconcile saved field mappings against detected headers
           function reconcileFieldMappings() {
             if (!Array.isArray(settings.fields) || !headerInfos) return;
             const infos = headerInfos || [];
             const findByCol = (col) => infos.find((h) => h.col === col);
-            const findByName = (name) =>
-              infos.find(
+            const findAllByName = (name) =>
+              infos.filter(
                 (h) => h.name === name || h.norm === normalizeHeader(name)
               );
             const normLabel = (s) => normalizeHeader(String(s || ""));
+
+            // Track which headerInfos indices have been assigned to prevent duplicates
+            const assigned = new Set();
 
             settings.fields = settings.fields.map((f, idx) => {
               const out = Object.assign({}, f);
@@ -716,31 +864,43 @@
                 const hi = findByCol(out.headerCol);
                 out.header = hi.name;
                 out.headerCol = hi.col;
+                assigned.add(hi.col);
                 return out;
               }
 
-              // Try exact name or normalized name
+              // Try exact name or normalized name - prefer an unassigned matching headerInfo
               if (out.header) {
-                const hi = findByName(out.header);
-                if (hi) {
-                  out.header = hi.name;
-                  out.headerCol = hi.col;
-                  return out;
+                const candidates = findAllByName(out.header);
+                if (candidates && candidates.length > 0) {
+                  // choose first unassigned candidate, else first candidate
+                  let hi =
+                    candidates.find((c) => !assigned.has(c.col)) ||
+                    candidates[0];
+                  if (hi) {
+                    out.header = hi.name;
+                    out.headerCol = hi.col;
+                    assigned.add(hi.col);
+                    return out;
+                  }
                 }
               }
 
-              // Try matching by label
+              // Try matching by label (prefer unassigned match)
               if (out.label) {
                 const labelNorm = normLabel(out.label);
-                const hi = infos.find(
+                const labelMatches = infos.filter(
                   (h) =>
                     normLabel(h.name) === labelNorm ||
                     normLabel(h.name).includes(labelNorm) ||
                     labelNorm.includes(normLabel(h.name))
                 );
-                if (hi) {
+                if (labelMatches && labelMatches.length > 0) {
+                  const hi =
+                    labelMatches.find((c) => !assigned.has(c.col)) ||
+                    labelMatches[0];
                   out.header = hi.name;
                   out.headerCol = hi.col;
+                  assigned.add(hi.col);
                   return out;
                 }
               }
@@ -750,10 +910,21 @@
               if (m) {
                 const num = Number(m[1]);
                 if (Number.isInteger(num) && infos[num]) {
-                  out.header = infos[num].name;
-                  out.headerCol = infos[num].col;
+                  const hi = infos[num];
+                  out.header = hi.name;
+                  out.headerCol = hi.col;
+                  assigned.add(hi.col);
                   return out;
                 }
+              }
+
+              // As a last effort, assign the first unassigned headerInfo (to avoid duplicates)
+              const unassigned = infos.find((h) => !assigned.has(h.col));
+              if (unassigned) {
+                out.header = unassigned.name;
+                out.headerCol = unassigned.col;
+                assigned.add(unassigned.col);
+                return out;
               }
 
               // Leave as-is if no mapping found
@@ -842,7 +1013,7 @@
               typeof currentSelectedRow !== "undefined"
                 ? currentSelectedRow
                 : null;
-            input.value = cur ? getValueFromRow(cur, field.id) || "" : "";
+            input.value = cur ? getValueFromRowStrict(cur, field.id) || "" : "";
           } catch (e) {
             input.value = "";
           }
@@ -864,48 +1035,52 @@
           if (v) return v;
         }
 
-        // Exact header name match
+        // Exact header name match and robust fallback using headerInfos uniqueKey
         if (field.header) {
-          if (row.hasOwnProperty(field.header)) {
-            const v = String(row[field.header] || "").trim();
-            if (v) return v;
+          // Try to find matching headerInfo first so we can prefer uniqueKey when headers duplicate
+          const desiredNorm = normalizeHeader(field.header || "");
+          let matchedHi = null;
+          if (field.headerCol)
+            matchedHi = (headerInfos || []).find(
+              (h) => h.col === field.headerCol
+            );
+          if (!matchedHi)
+            matchedHi = (headerInfos || []).find(
+              (h) => h.name === field.header || h.norm === desiredNorm
+            );
+          // If still not matched, try by label heuristics
+          if (!matchedHi && field.label) {
+            const labNorm = normalizeHeader(field.label || "");
+            matchedHi = (headerInfos || []).find(
+              (h) =>
+                normalizeHeader(h.name || "") === labNorm ||
+                normalizeHeader(h.name || "").includes(labNorm)
+            );
           }
-          // Try normalized header key
-          const normKey = normalizeHeader(field.header || "");
-          if (normKey && row.hasOwnProperty(normKey)) {
-            const v = String(row[normKey] || "").trim();
-            if (v) return v;
-          }
-        }
 
-        // Fallback: try to match a headerInfo that corresponds to this field
-        // (match by column address, exact header name, or normalized header name)
-        const desiredNorm = normalizeHeader(field.header || "");
-        let matchedHi = null;
-        if (field.headerCol) {
-          matchedHi = (headerInfos || []).find(
-            (h) => h.col === field.headerCol
-          );
-        }
-        if (!matchedHi && field.header) {
-          matchedHi = (headerInfos || []).find(
-            (h) => h.name === field.header || h.norm === desiredNorm
-          );
-        }
-        // If still not matched, try matching by label or normalized label against headerInfos
-        if (!matchedHi && field.label) {
-          const labNorm = normalizeHeader(field.label || "");
-          matchedHi = (headerInfos || []).find(
-            (h) =>
-              normalizeHeader(h.name || "") === labNorm ||
-              normalizeHeader(h.name || "").includes(labNorm)
-          );
-        }
-        if (matchedHi) {
-          const keys = [matchedHi.col, matchedHi.name, matchedHi.norm];
-          for (const k of keys) {
-            if (k && row.hasOwnProperty(k)) {
-              const v = String(row[k] || "").trim();
+          if (matchedHi) {
+            // Prefer uniqueKey -> column -> name -> norm
+            const tryKeys = [
+              matchedHi.uniqueKey,
+              matchedHi.col,
+              matchedHi.name,
+              matchedHi.norm,
+            ];
+            for (const k of tryKeys) {
+              if (k && row.hasOwnProperty(k)) {
+                const v = String(row[k] || "").trim();
+                if (v) return v;
+              }
+            }
+          } else {
+            // Fallback simple checks
+            if (row.hasOwnProperty(field.header)) {
+              const v = String(row[field.header] || "").trim();
+              if (v) return v;
+            }
+            const normKey = normalizeHeader(field.header || "");
+            if (normKey && row.hasOwnProperty(normKey)) {
+              const v = String(row[normKey] || "").trim();
               if (v) return v;
             }
           }
@@ -922,6 +1097,46 @@
           }
         }
 
+        return "";
+      }
+
+      // Strict lookup: prefer headerCol or exact header/uniqueKey matches only.
+      // This avoids loose label-based heuristics and prevents duplicate values
+      // when headers have similar names.
+      function getValueFromRowStrict(row, fieldId) {
+        const field = settings.fields.find((f) => f.id === fieldId);
+        if (!field) return "";
+        try {
+          if (field.headerCol && row[field.headerCol] !== undefined) {
+            return String(row[field.headerCol] || "").trim();
+          }
+          if (field.header) {
+            const desiredNorm = normalizeHeader(field.header || "");
+            const matchedHi = (headerInfos || []).find(
+              (h) => h.name === field.header || h.norm === desiredNorm
+            );
+            if (matchedHi) {
+              if (
+                matchedHi.uniqueKey &&
+                row.hasOwnProperty(matchedHi.uniqueKey)
+              )
+                return String(row[matchedHi.uniqueKey] || "").trim();
+              if (row.hasOwnProperty(matchedHi.col))
+                return String(row[matchedHi.col] || "").trim();
+              if (row.hasOwnProperty(matchedHi.name))
+                return String(row[matchedHi.name] || "").trim();
+              if (row.hasOwnProperty(matchedHi.norm))
+                return String(row[matchedHi.norm] || "").trim();
+            }
+            if (row.hasOwnProperty(field.header))
+              return String(row[field.header] || "").trim();
+            const nk = normalizeHeader(field.header || "");
+            if (nk && row.hasOwnProperty(nk))
+              return String(row[nk] || "").trim();
+          }
+        } catch (e) {
+          /* best-effort */
+        }
         return "";
       }
 
@@ -961,23 +1176,15 @@
 
       // Find part details from master data using primary field value
       function findPartDetails(primaryValue) {
-        const primaryFieldDef = settings.fields.find(
-          (f) => f.id === getPrimaryFieldId()
-        );
-        if (!primaryFieldDef) return null;
+        const primaryId = getPrimaryFieldId();
+        if (!primaryId) return null;
         return masterData.find((item) => {
-          if (
-            primaryFieldDef.headerCol &&
-            item[primaryFieldDef.headerCol] !== undefined
-          ) {
-            return (
-              String(item[primaryFieldDef.headerCol] || "") ===
-              String(primaryValue)
-            );
+          try {
+            const v = getValueFromRow(item, primaryId) || "";
+            return String(v) === String(primaryValue);
+          } catch (e) {
+            return false;
           }
-          return (
-            String(item[primaryFieldDef.header] || "") === String(primaryValue)
-          );
         });
       }
 
@@ -2191,6 +2398,23 @@
               }
             };
           });
+
+          // Ensure required class reflects populated values: remove red border for populated inputs
+          try {
+            settings.fields.forEach((field) => {
+              const input = document.getElementById(field.id);
+              if (!input) return;
+              const val = String(input.value || "").trim();
+              if (val) {
+                input.classList.remove("required");
+              }
+            });
+          } catch (e) {
+            console.warn(
+              "rebuildInputUI: failed to reconcile required classes",
+              e
+            );
+          }
         };
 
         // If we have a new license key from URL, validate it
@@ -2337,6 +2561,36 @@
         }
 
         function renderPartsList(parts) {
+          try {
+            window._masterDataDebug = window._masterDataDebug || {};
+            // snapshot what is about to be rendered in the modal (preserve key values)
+            window._masterDataDebug.lastRenderedParts = (parts || []).map(
+              (item) => {
+                const idx = masterData.findIndex((m) => m === item);
+                const primaryVal = getPrimaryValue(item) || "N/A";
+                // build display values for the parts list for easier debugging
+                const displayFields = Array.isArray(settings.displayFields)
+                  ? settings.displayFields
+                  : settings.displayField
+                  ? [settings.displayField]
+                  : null;
+                const displayVals = (displayFields || []).map((fid) => ({
+                  id: fid,
+                  val: getValueFromRowStrict(item, fid) || "",
+                }));
+                return {
+                  rowIndex: idx,
+                  primaryValue: primaryVal,
+                  displayValues: displayVals,
+                };
+              }
+            );
+          } catch (e) {
+            console.warn(
+              "renderPartsList: failed to snapshot parts list for debug",
+              e
+            );
+          }
           if (parts.length === 0) {
             partsList.innerHTML =
               '<div class="no-results">No matching parts found</div>';
@@ -2371,13 +2625,13 @@
 
               if (displayFields && displayFields.length > 0) {
                 const mainId = displayFields[0];
-                const mainVal = getValueFromRow(item, mainId) || "N/A";
+                const mainVal = getValueFromRowStrict(item, mainId) || "N/A";
                 displayContent = `<span class="part-code" style="font-weight: bold; font-size: 1.1em;">${mainVal}</span>`;
 
                 // Collect appended values from remaining displayFields
                 const appended = displayFields
                   .slice(1)
-                  .map((fid) => getValueFromRow(item, fid) || "")
+                  .map((fid) => getValueFromRowStrict(item, fid) || "")
                   .filter(Boolean);
                 if (appended.length > 0) {
                   // Use higher contrast and larger text for appended/bracketed values
