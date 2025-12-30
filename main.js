@@ -126,7 +126,8 @@ ipcMain.handle('read-master-data', async () => {
 // Handle writing logs (for manual export)
 ipcMain.handle('write-logs', async (event, data) => {
   const today = new Date().toISOString().split('T')[0];
-  const logFilePath = path.join(rootPath, `logs_${today}.xlsx`);
+  // Use the same history-<date>.xlsx filename pattern as real-time saves
+  const logFilePath = path.join(rootPath, `history-${today}.xlsx`);
   try {
     const result = await writeExcelFile(logFilePath, data);
     return { success: true, filePath: logFilePath, ...result };
