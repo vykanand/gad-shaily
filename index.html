@@ -1218,8 +1218,51 @@
                   let found = false;
                   for (const hi of headerInfos || []) {
                     try {
-                      const expectedVal =
-                        candidates[hi.name] || candidates[hi.norm] || "";
+                      // Try multiple candidate keys: header name, normalized name,
+                      // uniqueKey, and column address (legacy / label mismatches)
+                      let expectedVal = "";
+                      const candKeys = [hi.name, hi.norm, hi.uniqueKey, hi.col];
+                      for (const k of candKeys) {
+                        try {
+                          if (
+                            k &&
+                            candidates.hasOwnProperty(k) &&
+                            String(candidates[k] || "").trim() !== ""
+                          ) {
+                            expectedVal = String(candidates[k] || "").trim();
+                            break;
+                          }
+                        } catch (e) {}
+                      }
+
+                      // Fallback: some code paths build candidates keyed by field label/id
+                      if (!expectedVal && Array.isArray(settings.fields)) {
+                        for (const sf of settings.fields) {
+                          try {
+                            const headerMatch =
+                              (sf.header &&
+                                (String(sf.header) === String(hi.name) ||
+                                  String(sf.header) === String(hi.col) ||
+                                  String(sf.header) ===
+                                    String(hi.uniqueKey))) ||
+                              normalizeHeader(sf.label || "") === hi.norm;
+                            if (headerMatch) {
+                              const ck = sf.label || sf.id;
+                              if (
+                                ck &&
+                                candidates.hasOwnProperty(ck) &&
+                                String(candidates[ck] || "").trim() !== ""
+                              ) {
+                                expectedVal = String(
+                                  candidates[ck] || ""
+                                ).trim();
+                                break;
+                              }
+                            }
+                          } catch (e) {}
+                        }
+                      }
+
                       if (!expectedVal) continue;
                       const colIndex = headerInfos.indexOf(hi);
                       const cellVal =
@@ -3611,41 +3654,8 @@
             );
         }
 
-        // Render list of group values for a given level index
-        function ensureGroupRefreshButtonWired() {
-          const resetBtn = document.getElementById("group-reset-btn");
-          if (!resetBtn) return;
-          if (resetBtn.dataset.wired === "1") return;
-
-          const stop = (e) => {
-            try {
-              e.preventDefault();
-              e.stopPropagation();
-            } catch (err) {}
-          };
-
-          resetBtn.addEventListener("click", (e) => {
-            stop(e);
-            try {
-              if (_groupState) {
-                _groupState.selections = [];
-                _groupState.currentFilteredRows = null;
-              }
-              if (_groupState && _groupState.enabled) {
-                renderGroupValues(0);
-              } else {
-                renderPartsList(masterData);
-              }
-            } catch (err) {
-              console.error("Refresh button error:", err);
-              try {
-                renderPartsList(masterData);
-              } catch (e2) {}
-            }
-          });
-
-          resetBtn.dataset.wired = "1";
-        }
+        // Note: group reset button removed; group controls now reuse
+        // the main `refresh-master-btn` for refreshing master data.
 
         function getGroupLevelInfo(levelIndex) {
           const lvl =
@@ -3671,14 +3681,11 @@
         function renderGroupValues(levelIndex) {
           const groupControls = document.getElementById("group-controls");
           const breadcrumb = document.getElementById("group-breadcrumb");
-          const resetBtn = document.getElementById("group-reset-btn");
+          const refreshBtn = document.getElementById("refresh-master-btn");
           const summary = document.getElementById("group-summary");
 
-          if (!groupControls || !breadcrumb || !resetBtn)
+          if (!groupControls || !breadcrumb || !refreshBtn)
             return renderPartsList(masterData);
-
-          // Ensure Refresh is always wired once
-          ensureGroupRefreshButtonWired();
 
           groupControls.style.display = "block";
 
@@ -4033,6 +4040,38 @@
                 }
               });
             }
+
+            // Clear any regex / input highlights applied previously.
+            try {
+              // Remove scan-related classes from all configured input fields
+              (settings.fields || []).forEach((f) => {
+                try {
+                  const el = document.getElementById(f.id);
+                  if (!el) return;
+                  el.classList.remove(
+                    "scan-active",
+                    "scan-pending",
+                    "scan-passed",
+                    "scan-failed"
+                  );
+                  // remove inline highlight styles if present
+                  el.style.background = "";
+                  el.style.color = "";
+                } catch (e) {}
+              });
+
+              // Remove any DOM highlight markers inserted by regex-highlighting routines
+              document
+                .querySelectorAll(".reg-highlight, .regex-highlight")
+                .forEach((node) => {
+                  try {
+                    const txt = node.textContent || "";
+                    const parent = node.parentNode;
+                    if (parent)
+                      parent.replaceChild(document.createTextNode(txt), node);
+                  } catch (e) {}
+                });
+            } catch (e) {}
 
             // Console-log the loaded row index and a full header->value map for debugging
             try {
@@ -5347,20 +5386,7 @@
         <div class="modal-header">
           <h2 class="modal-title">Master Parts List</h2>
           <div style="display: flex; gap: 8px; align-items: center">
-            <button
-              id="refresh-master-btn"
-              type="button"
-              style="
-                padding: 6px 10px;
-                background: #1f8b4c;
-                color: #fff;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-              "
-            >
-              Refresh
-            </button>
+            <!-- Refresh button moved into group controls to avoid duplicate controls -->
             <button class="close-modal">&times;</button>
           </div>
         </div>
@@ -5379,12 +5405,12 @@
             ></div>
             <div style="display: flex; gap: 8px">
               <button
-                id="group-reset-btn"
+                id="refresh-master-btn"
                 type="button"
                 style="
                   padding: 6px 10px;
-                  background: #ff9800;
-                  color: #022;
+                  background: #1f8b4c;
+                  color: #fff;
                   border: none;
                   border-radius: 4px;
                   cursor: pointer;
