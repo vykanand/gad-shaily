@@ -16,7 +16,10 @@
 
     startSessionForCurrentPart() {
       try {
+        // Debug: snapshot the currentSelectedRow at session start
+        try { console.info && console.info('scanManager.startSessionForCurrentPart: window.currentSelectedRow=', window.currentSelectedRow); } catch (e) {}
         this.scanSession.targetPart = window.currentSelectedRow || null;
+        try { console.info && console.info('scanManager.startSessionForCurrentPart: initial targetPart=', this.scanSession.targetPart); } catch (e) {}
         // If no explicit selection, try resolve from primary input value
         if (!this.scanSession.targetPart) {
           const primaryId = (typeof window.getPrimaryFieldId === 'function' && window.getPrimaryFieldId()) || (window.settings?.primaryFields?.[0]) || '';
@@ -27,6 +30,7 @@
               const resolved = window.findPartDetails(primaryVal);
               if (resolved) {
                 this.scanSession.targetPart = resolved;
+                try { console.info && console.info('scanManager.startSessionForCurrentPart: resolved targetPart from primary lookup=', resolved); } catch(e) {}
                 // Populate input fields from resolved targetPart so UI and logs have values
                 const fields = window.settings?.fields ?? [];
                 fields.forEach(f => {
@@ -935,6 +939,54 @@
               const scannedNorm = String(scannedVal).normalize('NFKC').trim();
               const expectedCodes = Array.from(expectedNorm).map((c) => c.charCodeAt(0));
               const scannedCodes = Array.from(scannedNorm).map((c) => c.charCodeAt(0));
+              // attempt to resolve Excel row index for the current target part
+              let excelRowIndex = null;
+              try {
+                const rawRows = window.masterRawRows || [];
+                if (Array.isArray(this.scanSession.targetPart)) {
+                  excelRowIndex = rawRows.findIndex(r => r === this.scanSession.targetPart);
+                } else if (this.scanSession.targetPart) {
+                  // try to match by primary value
+                  const pid = (typeof window.getPrimaryFieldId === 'function' && window.getPrimaryFieldId()) || (window.settings?.primaryFields?.[0]) || '';
+                  if (pid) {
+                    const pv = (typeof window.getValueFromRow === 'function') ? window.getValueFromRow(this.scanSession.targetPart, pid) : '';
+                    if (pv) {
+                      excelRowIndex = rawRows.findIndex(r => {
+                        try { return (typeof window.getValueFromRow === 'function' ? window.getValueFromRow(r, pid) : '') === pv; } catch(e) { return false; }
+                      });
+                    }
+                  }
+                }
+
+              } catch (riE) { /* ignore */ }
+
+              // Collect current input values and exact excel row values for diagnostics/logging
+              const fieldsList = (window.settings && window.settings.fields) || [];
+              const inputsMap = {};
+              const excelMap = {};
+              const mergedMap = {};
+              try {
+                fieldsList.forEach((f) => {
+                  const label = f.label || f.id || '';
+                  const id = f.id || label;
+                  const inpEl = document.getElementById(id);
+                  const inpVal = inpEl ? (inpEl.value || '') : '';
+                  inputsMap[label] = inpVal;
+                  let excelVal = '';
+                  try {
+                    if (excelRowIndex !== null && Array.isArray(window.masterRawRows) && window.masterRawRows[excelRowIndex]) {
+                      excelVal = (typeof window.getValueFromRow === 'function') ? (window.getValueFromRow(window.masterRawRows[excelRowIndex], id) || '') : '';
+                    } else if (this.scanSession.targetPart) {
+                      excelVal = (typeof window.getValueFromRow === 'function') ? (window.getValueFromRow(this.scanSession.targetPart, id) || '') : '';
+                    }
+                  } catch (e) { excelVal = '' }
+                  excelMap[label] = excelVal;
+                  mergedMap[label] = excelVal || inpVal || '';
+                });
+                // include scan-by if present
+                try { mergedMap['scan-by'] = document.getElementById('scan-by')?.value || mergedMap['scan-by'] || ''; } catch(e){}
+              } catch(e) {}
+
               console.error('scanManager: NOT_MATCH diagnostic', {
                 currentField: currentField,
                 expectedRaw: expectedVal,
@@ -944,8 +996,12 @@
                 scannedNorm: scannedNorm,
                 scannedCharCodes: scannedCodes,
                 targetPart: this.scanSession.targetPart || null,
+                excelRowIndex: excelRowIndex,
                 missingFields: this.scanSession._missingFields || [],
-                sessionRequired: this.scanSession.requiredFields || []
+                sessionRequired: this.scanSession.requiredFields || [],
+                inputs: inputsMap,
+                excelRowValues: excelMap,
+                mergedValues: mergedMap
               });
               if (!expectedVal) {
                 console.error('scanManager: NOT_MATCH reason=EMPTY_EXPECTED for field', currentField);
@@ -960,7 +1016,26 @@
               console.error('scanManager: NOT_MATCH diagnostic failed', diagE);
             }
 
-            if (typeof window.saveErrorScanLogRealtime === 'function') window.saveErrorScanLogRealtime(logEntry);
+            try {
+              if (typeof window.saveErrorScanLogRealtime === 'function') {
+                // Enrich logEntry with best available values (excel -> input -> empty)
+                try {
+                  const enriched = Object.assign({}, logEntry || {});
+                  (Object.keys(mergedMap || {})).forEach((label) => {
+                    // use label as column header in exported logs
+                    enriched[label] = mergedMap[label];
+                  });
+                  enriched['Scanned Code'] = cleanedCode || (enriched['Scanned Code'] || '');
+                  enriched['Status'] = 'NOT_MATCHED';
+                  // include excel row index for traceability
+                  enriched['excelRowIndex'] = excelRowIndex;
+                  window.saveErrorScanLogRealtime(enriched);
+                } catch (ee) {
+                  // fallback to original logEntry if enrichment fails
+                  window.saveErrorScanLogRealtime(logEntry);
+                }
+              }
+            } catch (e) { console.error('calling saveErrorScanLogRealtime failed', e); }
           } catch (e) {
             console.error('saveErrorScanLogRealtime failed:', e);
           }

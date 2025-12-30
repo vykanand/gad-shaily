@@ -38,37 +38,49 @@
         background-color: #003366;
         display: flex;
         flex-direction: column;
-        height: 100vh;
         overflow-y: auto;
+        height: 100vh;
       }
 
       .header {
         display: flex;
         justify-content: space-between;
         align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+        padding: 8px 0 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
       }
 
       .header h1 {
         font-size: 28px;
         color: yellow;
         margin: 0;
+        line-height: 1.1;
+        flex: 1;
+        min-width: 220px;
       }
 
       .logo {
-        font-size: 30px;
         font-weight: bold;
         color: #ccc;
         background: radial-gradient(circle, red 10%, black 50%);
         padding: 10px;
-        border-radius: 5px;
+        border-radius: 8px;
         display: flex;
         align-items: center;
         justify-content: center;
+        min-width: 86px;
+        height: 56px;
+        flex: 0 0 auto;
       }
 
       .logo img {
-        max-height: 50px;
+        max-height: 48px;
+        max-width: 76px;
         width: auto;
+        height: auto;
+        object-fit: contain;
         display: none; /* Hidden by default until loaded */
       }
 
@@ -79,6 +91,9 @@
       .buttons {
         display: flex;
         gap: 10px;
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+        justify-content: flex-end;
       }
 
       .buttons button {
@@ -91,6 +106,17 @@
         font-weight: bold;
         font-size: 16px;
         min-width: 100px;
+        min-height: 44px;
+        line-height: 1;
+      }
+
+      .buttons button:active {
+        transform: translateY(1px);
+      }
+
+      .buttons button:focus-visible {
+        outline: 2px solid rgba(255, 255, 255, 0.5);
+        outline-offset: 2px;
       }
 
       .main {
@@ -482,6 +508,47 @@
         background-color: #1f4e79;
       }
 
+      /* Grouping cards (Master modal drill-down) */
+      .group-value-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 14px;
+        background-color: #0070c0;
+        margin-bottom: 12px;
+        border-radius: 14px;
+        cursor: pointer;
+        transition: transform 0.12s ease, background-color 0.12s ease;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .group-value-item:hover {
+        background-color: #1f4e79;
+        transform: translateY(-1px);
+      }
+
+      .group-card-title {
+        font-weight: bold;
+        color: yellow;
+        font-size: 20px;
+        line-height: 1.2;
+      }
+
+      .group-card-subtitle {
+        color: #ffffff;
+        opacity: 0.9;
+        font-size: 14px;
+        margin-top: 6px;
+      }
+
+      .group-card-meta {
+        color: #ffffff;
+        opacity: 0.95;
+        font-size: 14px;
+        text-align: right;
+        min-width: 160px;
+      }
+
       .part-info {
         flex-grow: 1;
       }
@@ -624,8 +691,9 @@
       const { ipcRenderer } = require("electron");
       const fs = require("node:fs");
       const path = require("node:path");
-      // Main application variablesW
+      // Main application variables
       let masterData = [];
+      let masterRawRows = []; // raw rows as read from Excel (arrays)
       let availableHeaders = [];
       let headerInfos = []; // Array of { name, col, norm }
       let currentSelectedRow = null;
@@ -648,8 +716,9 @@
       };
 
       // Load master data from Excel file
-      async function loadMasterData() {
+      async function loadMasterData(forceReload = false) {
         try {
+          console.log("loadMasterData called, forceReload=", !!forceReload);
           const rawData = await ipcRenderer.invoke("read-master-data");
           if (!rawData || !rawData.length) {
             console.error("Failed to read master data");
@@ -682,35 +751,44 @@
           });
           console.log("Headers found:", headers, "headerInfos:", headerInfos);
 
-          // Build masterData rows as objects keyed by column letter, header name and normalized header
-          masterData = rawData
+          // Keep raw rows (arrays) and also build convenience mapped objects for compatibility
+          masterRawRows = rawData
             .slice(1)
-            .map((rowArr) => {
-              const obj = {};
-              for (let i = 0; i < headerInfos.length; i++) {
-                const h = headerInfos[i] || {
-                  name: "",
-                  col: columnLetter(i),
-                  norm: "",
-                  uniqueKey: columnLetter(i),
-                };
-                const val =
-                  rowArr[i] !== undefined && rowArr[i] !== null
-                    ? String(rowArr[i])
-                    : "";
-                // Always store by column address
-                obj[h.col] = val;
-                // Store by original name and normalized name for compatibility
-                obj[h.name] = val;
-                obj[h.norm] = val;
-                // Also store under uniqueKey to avoid collisions when headers duplicate
-                if (h.uniqueKey) obj[h.uniqueKey] = val;
-              }
-              return obj;
-            })
-            .filter((r) =>
-              Object.values(r).some((v) => v && v.trim && v.trim() !== "")
+            .filter(
+              (r) =>
+                Array.isArray(r) &&
+                r.some(
+                  (c) =>
+                    c !== undefined &&
+                    c !== null &&
+                    String(c || "").trim() !== ""
+                )
             );
+
+          // Build masterData rows as objects keyed by column letter, header name and normalized header (legacy compatibility)
+          masterData = masterRawRows.map((rowArr) => {
+            const obj = {};
+            for (let i = 0; i < headerInfos.length; i++) {
+              const h = headerInfos[i] || {
+                name: "",
+                col: columnLetter(i),
+                norm: "",
+                uniqueKey: columnLetter(i),
+              };
+              const val =
+                rowArr[i] !== undefined && rowArr[i] !== null
+                  ? String(rowArr[i])
+                  : "";
+              // Always store by column address
+              obj[h.col] = val;
+              // Store by original name and normalized name for compatibility
+              obj[h.name] = val;
+              obj[h.norm] = val;
+              // Also store under uniqueKey to avoid collisions when headers duplicate
+              if (h.uniqueKey) obj[h.uniqueKey] = val;
+            }
+            return obj;
+          });
 
           console.log("Processed masterData rows:", masterData.length);
 
@@ -777,6 +855,48 @@
 
           // Load saved settings if available and apply
           loadSettings();
+
+          // If there was a previously selected part, try to re-resolve it
+          try {
+            if (currentSelectedRow) {
+              const prevPrimary = getPrimaryValue(currentSelectedRow) || "";
+              if (prevPrimary) {
+                const foundIdx = masterData.findIndex((m) => {
+                  const mv = getPrimaryValue(m) || "";
+                  return mv && String(mv).trim() === String(prevPrimary).trim();
+                });
+                if (foundIdx >= 0) {
+                  currentSelectedRow = masterData[foundIdx];
+                  try {
+                    window.currentSelectedRow = currentSelectedRow;
+                  } catch (e) {}
+                  // repopulate inputs from the newly loaded master row
+                  settings.fields.forEach((field) => {
+                    const input = document.getElementById(field.id);
+                    if (input) {
+                      input.value =
+                        getValueFromRow(currentSelectedRow, field.id) || "";
+                    }
+                  });
+                } else {
+                  // previous selection not found in new master data -> clear selection and inputs
+                  currentSelectedRow = null;
+                  try {
+                    window.currentSelectedRow = null;
+                  } catch (e) {}
+                  settings.fields.forEach((field) => {
+                    const input = document.getElementById(field.id);
+                    if (input) input.value = "";
+                  });
+                }
+              }
+            }
+          } catch (e) {
+            console.warn(
+              "Failed to reconcile previous selection after loading master data",
+              e
+            );
+          }
 
           // Detect if headers changed compared to saved settings.fields mapping.
           // If mismatch found, reset settings to defaults based on detected headers
@@ -1026,75 +1146,127 @@
       }
 
       // Helper: get value from master row using field ID
+      // Supports both object-mapped rows and raw array rows from Excel
       function getValueFromRow(row, fieldId) {
         const field = settings.fields.find((f) => f.id === fieldId);
         if (!field) return "";
-        // Prefer lookup by column address if available
-        if (field.headerCol && row[field.headerCol] !== undefined) {
-          const v = String(row[field.headerCol] || "").trim();
-          if (v) return v;
-        }
 
-        // Exact header name match and robust fallback using headerInfos uniqueKey
-        if (field.header) {
-          // Try to find matching headerInfo first so we can prefer uniqueKey when headers duplicate
-          const desiredNorm = normalizeHeader(field.header || "");
-          let matchedHi = null;
-          if (field.headerCol)
-            matchedHi = (headerInfos || []).find(
+        // If row is an array (raw Excel row), use headerInfos to locate column index
+        if (Array.isArray(row)) {
+          // If headerCol is present (like 'G'), find its index in headerInfos
+          let colIndex = -1;
+          if (field.headerCol) {
+            colIndex = (headerInfos || []).findIndex(
               (h) => h.col === field.headerCol
             );
-          if (!matchedHi)
-            matchedHi = (headerInfos || []).find(
+          }
+          // If not found, try to match by header name or normalized header
+          if (colIndex === -1 && field.header) {
+            const desiredNorm = normalizeHeader(field.header || "");
+            const matchedHi = (headerInfos || []).find(
               (h) => h.name === field.header || h.norm === desiredNorm
             );
-          // If still not matched, try by label heuristics
-          if (!matchedHi && field.label) {
+            if (matchedHi) colIndex = headerInfos.indexOf(matchedHi);
+          }
+          // Last resort: try to find by label heuristics
+          if (colIndex === -1 && field.label) {
             const labNorm = normalizeHeader(field.label || "");
-            matchedHi = (headerInfos || []).find(
+            const matchedHi = (headerInfos || []).find(
               (h) =>
                 normalizeHeader(h.name || "") === labNorm ||
                 normalizeHeader(h.name || "").includes(labNorm)
             );
+            if (matchedHi) colIndex = headerInfos.indexOf(matchedHi);
           }
 
-          if (matchedHi) {
-            // Prefer uniqueKey -> column -> name -> norm
-            const tryKeys = [
-              matchedHi.uniqueKey,
-              matchedHi.col,
-              matchedHi.name,
-              matchedHi.norm,
-            ];
-            for (const k of tryKeys) {
+          if (
+            colIndex >= 0 &&
+            row[colIndex] !== undefined &&
+            row[colIndex] !== null
+          ) {
+            const v = String(row[colIndex] || "").trim();
+            if (v) return v;
+          }
+
+          // Fallback: scan headerInfos for any matching keys and return first non-empty
+          for (let i = 0; i < (headerInfos || []).length; i++) {
+            const hi = headerInfos[i];
+            if (!hi) continue;
+            if (row[i] !== undefined && row[i] !== null) {
+              const v = String(row[i] || "").trim();
+              if (v) return v;
+            }
+          }
+
+          return "";
+        }
+
+        // Otherwise assume row is an object mapping (legacy behavior)
+        try {
+          // Prefer lookup by column address if available
+          if (field.headerCol && row[field.headerCol] !== undefined) {
+            const v = String(row[field.headerCol] || "").trim();
+            if (v) return v;
+          }
+
+          // Exact header name match and robust fallback using headerInfos uniqueKey
+          if (field.header) {
+            const desiredNorm = normalizeHeader(field.header || "");
+            let matchedHi = null;
+            if (field.headerCol)
+              matchedHi = (headerInfos || []).find(
+                (h) => h.col === field.headerCol
+              );
+            if (!matchedHi)
+              matchedHi = (headerInfos || []).find(
+                (h) => h.name === field.header || h.norm === desiredNorm
+              );
+            if (!matchedHi && field.label) {
+              const labNorm = normalizeHeader(field.label || "");
+              matchedHi = (headerInfos || []).find(
+                (h) =>
+                  normalizeHeader(h.name || "") === labNorm ||
+                  normalizeHeader(h.name || "").includes(labNorm)
+              );
+            }
+
+            if (matchedHi) {
+              const tryKeys = [
+                matchedHi.uniqueKey,
+                matchedHi.col,
+                matchedHi.name,
+                matchedHi.norm,
+              ];
+              for (const k of tryKeys) {
+                if (k && row.hasOwnProperty(k)) {
+                  const v = String(row[k] || "").trim();
+                  if (v) return v;
+                }
+              }
+            } else {
+              if (row.hasOwnProperty(field.header)) {
+                const v = String(row[field.header] || "").trim();
+                if (v) return v;
+              }
+              const normKey = normalizeHeader(field.header || "");
+              if (normKey && row.hasOwnProperty(normKey)) {
+                const v = String(row[normKey] || "").trim();
+                if (v) return v;
+              }
+            }
+          }
+
+          for (const hi of headerInfos || []) {
+            const keys = [hi.col, hi.name, hi.norm];
+            for (const k of keys) {
               if (k && row.hasOwnProperty(k)) {
                 const v = String(row[k] || "").trim();
                 if (v) return v;
               }
             }
-          } else {
-            // Fallback simple checks
-            if (row.hasOwnProperty(field.header)) {
-              const v = String(row[field.header] || "").trim();
-              if (v) return v;
-            }
-            const normKey = normalizeHeader(field.header || "");
-            if (normKey && row.hasOwnProperty(normKey)) {
-              const v = String(row[normKey] || "").trim();
-              if (v) return v;
-            }
           }
-        }
-
-        // Last resort: try to find any headerInfos where the normalized header exists on row
-        for (const hi of headerInfos || []) {
-          const keys = [hi.col, hi.name, hi.norm];
-          for (const k of keys) {
-            if (k && row.hasOwnProperty(k)) {
-              const v = String(row[k] || "").trim();
-              if (v) return v;
-            }
-          }
+        } catch (e) {
+          // ignore
         }
 
         return "";
@@ -1219,6 +1391,10 @@
           } else if (parsed.displayField) {
             settings.displayFields = [parsed.displayField];
           }
+          // Load persisted grouping fields if present
+          if (Array.isArray(parsed.groupingFields)) {
+            settings.groupingFields = parsed.groupingFields;
+          }
           if (parsed.scanOperation)
             settings.scanOperation = parsed.scanOperation;
           if (parsed.displayField) settings.displayField = parsed.displayField;
@@ -1292,6 +1468,9 @@
             displayFields: settings.displayFields || [],
             removedHeaders: settings.removedHeaders || [],
             showMultiScanPanel: !!settings.showMultiScanPanel,
+            groupingFields: Array.isArray(settings.groupingFields)
+              ? settings.groupingFields
+              : [],
           };
           fs.writeFileSync(
             "settings.json",
@@ -1325,19 +1504,40 @@
           }
 
           // Convert the loaded data back to log entry format
+          // Determine which header represents the primary/display field
+          const displayFieldId =
+            settings.displayField || (settings.primaryFields || [])[0] || "";
+          const displayHeader =
+            (settings.fields || []).find((f) => f.id === displayFieldId)
+              ?.header || "Part Code";
+
           const loadedLogs = logsData.map((logData) => {
+            const dateStr = String(logData["Date"] || "");
+            const timeStr = String(logData["Time"] || "");
+            const timestamp = new Date(
+              (dateStr ? dateStr.split("/").reverse().join("-") : "") +
+                " " +
+                (timeStr || "")
+            );
+
+            // Resolve common fields using configured header names first, then legacy keys
+            const partCode =
+              logData[displayHeader] || logData["Part Code"] || "";
+            const partName = logData["Part Name"] || "";
+            const customer = logData["Customer"] || "";
+            const scannedCode = logData["Scanned Code"] || "";
+            const scannerInfo = logData["scan-by"] || logData["Scanner"] || "";
+            const matchStatus = logData["Status"] || "UNKNOWN";
+
             const log = {
-              timestamp: new Date(
-                logData["Date"].split("/").reverse().join("-") +
-                  " " +
-                  logData["Time"]
-              ),
-              partCode: logData["Part Code"] || "",
-              partName: logData["Part Name"] || "",
-              customer: logData["Customer"] || "",
-              scannedCode: logData["Scanned Code"] || "",
-              scannerInfo: logData["Scanner"] || "",
-              matchStatus: logData["Status"] || "UNKNOWN",
+              timestamp,
+              partCode,
+              partName,
+              customer,
+              scannedCode,
+              scannerInfo,
+              matchStatus,
+              raw: logData,
             };
 
             // If customer is empty in the log, try to get it from current master data
@@ -1385,17 +1585,55 @@
             currentLogDate = today;
           }
 
-          // Prepare single log entry for saving
-          const logToSave = {
-            Date: logEntry.timestamp.toLocaleDateString("en-GB"),
-            Time: logEntry.timestamp.toLocaleTimeString("en-GB"),
-            "Part Code": logEntry.partCode,
-            "Part Name": logEntry.partName,
-            Customer: logEntry.customer,
-            "Scanned Code": logEntry.scannedCode,
-            Scanner: logEntry.scannerInfo,
-            Status: logEntry.matchStatus,
-          };
+          // Prepare single log entry for saving using configured fields
+          const logToSave = {};
+          logToSave["Date"] = logEntry.timestamp.toLocaleDateString("en-GB");
+          logToSave["Time"] = logEntry.timestamp.toLocaleTimeString("en-GB");
+
+          // Include configured fields using their header names - prefer values from logEntry (if present),
+          // then master data (currentSelectedRow), then DOM inputs.
+          (settings.fields || []).forEach((f) => {
+            const header = f.header || f.label || f.id;
+            try {
+              let val = "";
+              if (logEntry && logEntry[header] !== undefined) {
+                val = logEntry[header] || "";
+              }
+              if (!val && currentSelectedRow) {
+                val = getValueFromRow(currentSelectedRow, f.id) || "";
+              }
+              if (!val) {
+                const el = document.getElementById(f.id);
+                val = el ? el.value || "" : "";
+              }
+              logToSave[header] = val;
+            } catch (e) {
+              logToSave[header] = "";
+            }
+          });
+
+          // Add scan-by value as an explicit column (preserve the key as-is)
+          try {
+            logToSave["scan-by"] = document.getElementById("scan-by")
+              ? document.getElementById("scan-by").value
+              : logEntry.scannerInfo || "";
+          } catch (e) {
+            logToSave["scan-by"] = logEntry.scannerInfo || "";
+          }
+
+          // Add legacy/common columns (prefer explicit keys on logEntry if present)
+          logToSave["Scanned Code"] =
+            logEntry && logEntry["Scanned Code"] !== undefined
+              ? logEntry["Scanned Code"]
+              : logEntry.scannedCode || "";
+          logToSave["Scanner"] =
+            logEntry && logEntry["Scanner"] !== undefined
+              ? logEntry["Scanner"]
+              : logEntry.scannerInfo || "";
+          logToSave["Status"] =
+            logEntry && logEntry["Status"] !== undefined
+              ? logEntry["Status"]
+              : logEntry.matchStatus || "";
 
           console.log("Saving log entry to Excel:", logToSave);
 
@@ -1432,16 +1670,48 @@
             currentLogDate = today;
           }
 
-          const logToSave = {
-            Date: logEntry.timestamp.toLocaleDateString("en-GB"),
-            Time: logEntry.timestamp.toLocaleTimeString("en-GB"),
-            "Part Code": logEntry.partCode,
-            "Part Name": logEntry.partName,
-            Customer: logEntry.customer,
-            "Scanned Code": logEntry.scannedCode,
-            Scanner: logEntry.scannerInfo,
-            Status: logEntry.matchStatus,
-          };
+          const logToSave = {};
+          logToSave["Date"] = logEntry.timestamp.toLocaleDateString("en-GB");
+          logToSave["Time"] = logEntry.timestamp.toLocaleTimeString("en-GB");
+
+          // Include configured fields using their header names - prefer values from logEntry (if present), then DOM inputs
+          (settings.fields || []).forEach((f) => {
+            const header = f.header || f.label || f.id;
+            try {
+              if (logEntry && logEntry[header] !== undefined) {
+                logToSave[header] = logEntry[header] || "";
+              } else {
+                logToSave[header] = document.getElementById(f.id)
+                  ? document.getElementById(f.id).value
+                  : "";
+              }
+            } catch (e) {
+              logToSave[header] = "";
+            }
+          });
+
+          // Add scan-by value as an explicit column (preserve the key as-is)
+          try {
+            logToSave["scan-by"] = document.getElementById("scan-by")
+              ? document.getElementById("scan-by").value
+              : logEntry.scannerInfo || "";
+          } catch (e) {
+            logToSave["scan-by"] = logEntry.scannerInfo || "";
+          }
+
+          // Add legacy/common columns (prefer explicit keys on logEntry if present)
+          logToSave["Scanned Code"] =
+            logEntry && logEntry["Scanned Code"] !== undefined
+              ? logEntry["Scanned Code"]
+              : logEntry.scannedCode || "";
+          logToSave["Scanner"] =
+            logEntry && logEntry["Scanner"] !== undefined
+              ? logEntry["Scanner"]
+              : logEntry.scannerInfo || "";
+          logToSave["Status"] =
+            logEntry && logEntry["Status"] !== undefined
+              ? logEntry["Status"]
+              : logEntry.matchStatus || "";
 
           console.log("Saving error log entry to Excel:", logToSave);
 
@@ -1464,72 +1734,81 @@
 
       // Function to save all logs to Excel (for manual export)
       async function saveLogsToExcel() {
-        if (scanLogs.length === 0) {
-          console.log("No logs to save");
-          showNotification("No scan logs to export", "error");
-          return;
-        }
-
-        if (isSaving) {
-          console.log("Already saving logs, skipping this save");
-          return;
-        }
-
-        isSaving = true;
-
         try {
-          // Prepare logs for saving with date included
-          const logsToSave = scanLogs.map((log) => ({
-            Date: log.timestamp.toLocaleDateString("en-GB"),
-            Time: log.timestamp.toLocaleTimeString("en-GB"),
-            "Part Code": log.partCode,
-            "Part Name": log.partName,
-            Customer: log.customer,
-            "Scanned Code": log.scannedCode,
-            Scanner: log.scannerInfo,
-            Status: log.matchStatus,
-          }));
+          const todaysLogs = await loadTodaysScanLogs();
+          if (!Array.isArray(todaysLogs) || todaysLogs.length === 0) {
+            showNotification("No scan logs available for today", "error");
+            return;
+          }
 
-          // Sort logs by date and time in descending order (newest first)
+          const logsToSave = todaysLogs.map((log) => {
+            const row = {};
+            row["Date"] = log.timestamp.toLocaleDateString("en-GB");
+            row["Time"] = log.timestamp.toLocaleTimeString("en-GB");
+
+            // Include configured fields using header names (take from log.raw if present)
+            (settings.fields || []).forEach((f) => {
+              const header = f.header || f.label || f.id;
+              // Prefer raw saved value, otherwise attempt to read from currentSelectedRow if available
+              row[header] =
+                (log.raw && log.raw[header]) ||
+                (currentSelectedRow
+                  ? getValueFromRow(currentSelectedRow, f.id)
+                  : "") ||
+                "";
+            });
+
+            // Ensure scan-by is present
+            row["scan-by"] =
+              (log.raw && (log.raw["scan-by"] || log.raw["Scanner"])) ||
+              log.scannerInfo ||
+              "";
+
+            // Legacy/common columns
+            row["Scanned Code"] = log.scannedCode;
+            row["Scanner"] = log.scannerInfo;
+            row["Status"] = log.matchStatus;
+            return row;
+          });
+
+          // Sort by date/time descending
           logsToSave.sort((a, b) => {
             const dateA = new Date(
-              a["Date"].split("/").reverse().join("-") + " " + a["Time"]
+              a.Date.split("/").reverse().join("-") + " " + a.Time
             );
             const dateB = new Date(
-              b["Date"].split("/").reverse().join("-") + " " + b["Time"]
+              b.Date.split("/").reverse().join("-") + " " + b.Time
             );
             return dateB - dateA;
           });
 
-          try {
-            // Save logs using IPC
-            const result = await ipcRenderer.invoke("write-logs", logsToSave);
-            console.log(
-              `Successfully saved ${logsToSave.length} logs to ${result.filePath}`
-            );
-
-            showNotification(
-              `Successfully exported ${logsToSave.length} scan logs`,
-              "info"
-            );
-          } catch (error) {
-            console.error("Error saving logs:", error);
-            showNotification(
-              "Error exporting logs. Please try again.",
-              "error"
-            );
-          }
+          const result = await ipcRenderer.invoke("write-logs", logsToSave);
+          console.log(
+            `Successfully saved ${logsToSave.length} logs to ${result.filePath}`
+          );
+          showNotification(
+            `Successfully exported ${logsToSave.length} scan logs`,
+            "info"
+          );
         } catch (error) {
           console.error("Error in saveLogsToExcel:", error);
-        } finally {
-          // Always reset the saving flag
-          isSaving = false;
+          showNotification("Error exporting logs. Please try again.", "error");
         }
       }
 
       // Handle scanned input
-      function handleScan(scannedCode) {
+      async function handleScan(scannedCode) {
         console.log("handleScan called with:", scannedCode);
+
+        // Optionally reload master data from disk before each scan if configured
+        try {
+          const shouldForceReload = !!(settings && settings.forceReloadOnScan);
+          if (shouldForceReload) {
+            await loadMasterData(true);
+          }
+        } catch (e) {
+          console.warn("Master reload before scan failed:", e);
+        }
 
         // If multiple primary fields are configured, delegate to scanManager
         if (
@@ -1622,10 +1901,21 @@
             scannerInfo: scannerInfo,
             matchStatus: isMatch ? "MATCHED" : "NOT MATCHED",
           };
-          // Add all field values to log
+          // Add all field values to log - prefer master.xlsx values (currentSelectedRow)
           settings.fields.forEach((field) => {
-            const input = document.getElementById(field.id);
-            logEntry[field.label] = input ? input.value : "";
+            let val = "";
+            try {
+              if (currentSelectedRow) {
+                val = getValueFromRow(currentSelectedRow, field.id) || "";
+              }
+              if (!val) {
+                const input = document.getElementById(field.id);
+                val = input ? input.value : "";
+              }
+            } catch (e) {
+              val = "";
+            }
+            logEntry[field.label] = val;
           });
           scanLogs.unshift(logEntry); // Add to beginning of array
 
@@ -1726,20 +2016,33 @@
             // Show PIN verification
             showPinVerification().then((isVerified) => {
               if (isVerified) {
-                // Clear the failed state after successful verification
-                document.getElementById("scan-status-value").textContent = "";
-                document.getElementById("part-code-status-value").textContent =
-                  "";
-                if (
-                  window.scanManager &&
-                  typeof window.scanManager._showReadyState === "function"
-                ) {
-                  window.scanManager._showReadyState();
-                } else {
-                  document.getElementById("pass-status").textContent = "READY";
-                  document
-                    .getElementById("pass-status")
-                    .classList.remove("failed");
+                // Preserve the failed UI so operator can retry the same field.
+                // Keep scan-data and status visible, focus the primary input,
+                // and ensure the failed field remains selected for re-scan.
+                try {
+                  const primaryId =
+                    (settings.primaryFields && settings.primaryFields[0]) ||
+                    (settings.fields &&
+                      settings.fields[0] &&
+                      settings.fields[0].id) ||
+                    null;
+                  if (primaryId) {
+                    const fld = document.getElementById(primaryId);
+                    if (fld) {
+                      fld.classList.remove("scan-pending");
+                      fld.classList.remove("scan-passed");
+                      fld.classList.add("scan-failed");
+                      try {
+                        fld.focus();
+                      } catch (e) {}
+                    }
+                  }
+                  // Keep pass-status as FAILED until the operator rescans and it passes
+                  const passEl = document.getElementById("pass-status");
+                  if (passEl) passEl.textContent = "FAILED";
+                  // Do not clear scan-data-value or other status fields here
+                } catch (e) {
+                  console.warn("post-pin: failed to preserve failed UI", e);
                 }
               }
             });
@@ -1993,9 +2296,19 @@
           const pinError = document.getElementById("pin-error");
           const verifyBtn = document.getElementById("verify-pin-btn");
 
+          // Remember whether parts modal was visible so we only restore it when appropriate
+          const partsModal = document.getElementById("parts-modal");
+          const partsWasVisible =
+            partsModal && partsModal.style.display !== "none";
+
           // Clear previous state but keep error states
           pinInput.value = "";
           pinError.textContent = "";
+
+          // Hide parts modal while PIN modal is focused (if it exists)
+          try {
+            if (partsModal) partsModal.style.display = "none";
+          } catch (e) {}
 
           // Show the modal
           pinModal.style.zIndex = "9999"; // Ensure modal is on top
@@ -2056,10 +2369,10 @@
                 pinError.textContent = "Invalid PIN. Please try again.";
                 pinInput.value = "";
                 pinInput.focus();
-                // Show parts modal again if present (safe access)
+                // Restore parts modal only if it was visible before opening PIN modal
                 try {
-                  const partsModal = document.getElementById("parts-modal");
-                  if (partsModal) partsModal.style.display = "block";
+                  if (partsWasVisible && partsModal)
+                    partsModal.style.display = "block";
                 } catch (e) {
                   console.warn(
                     "Could not re-open parts modal after PIN failure",
@@ -2541,9 +2854,10 @@
         const closeBtn = modal.querySelector(".close-modal");
         const searchBox = modal.querySelector(".search-box");
         const partsList = modal.querySelector(".parts-list");
+        const refreshMasterBtn = modal.querySelector("#refresh-master-btn");
 
         function showPartsModal() {
-          if (masterData.length === 0) {
+          if (!Array.isArray(masterRawRows) || masterRawRows.length === 0) {
             alert(
               "No master data available. Please check the master.xlsx file."
             );
@@ -2552,7 +2866,54 @@
           modal.style.display = "block";
           modal.style.zIndex = "1000";
           searchBox.focus();
-          renderPartsList(masterData);
+          try {
+            // Call grouping opener safely (avoid ReferenceError if not in scope)
+            if (typeof maybeOpenGroupedPartsModal === "function") {
+              maybeOpenGroupedPartsModal();
+            } else if (
+              typeof window.maybeOpenGroupedPartsModal === "function"
+            ) {
+              window.maybeOpenGroupedPartsModal();
+            } else {
+              renderPartsList(masterRawRows);
+            }
+          } catch (e) {
+            console.warn("Grouping failed, falling back to flat parts list", e);
+            renderPartsList(masterRawRows);
+          }
+        }
+
+        // Wire refresh button to reload master.xlsx and re-render list
+        if (refreshMasterBtn) {
+          try {
+            refreshMasterBtn.addEventListener("click", async (e) => {
+              try {
+                refreshMasterBtn.disabled = true;
+                refreshMasterBtn.textContent = "Refreshing...";
+                // Force reload master data from disk and overwrite in-memory object
+                await loadMasterData(true);
+                // If grouping active, try to re-open grouping view, otherwise render full list
+                if (_groupState && _groupState.enabled) {
+                  try {
+                    renderGroupValues(_groupState.levels ? 0 : 0);
+                  } catch (e) {
+                    renderPartsList(masterData);
+                  }
+                } else {
+                  renderPartsList(masterData);
+                }
+                showNotification("Master data refreshed from Excel", "info");
+              } catch (err) {
+                console.error("Failed to refresh master data:", err);
+                showNotification("Failed to refresh master data", "error");
+              } finally {
+                refreshMasterBtn.disabled = false;
+                refreshMasterBtn.textContent = "Refresh";
+              }
+            });
+          } catch (e) {
+            console.warn("Failed to wire refreshMasterBtn", e);
+          }
         }
 
         function hidePartsModal() {
@@ -2561,19 +2922,20 @@
         }
 
         function renderPartsList(parts) {
+          const safeParts = Array.isArray(parts) ? parts : [];
+
+          // Optional debug snapshot (kept safe; never breaks rendering)
           try {
             window._masterDataDebug = window._masterDataDebug || {};
-            // snapshot what is about to be rendered in the modal (preserve key values)
-            window._masterDataDebug.lastRenderedParts = (parts || []).map(
+            window._masterDataDebug.lastRenderedParts = safeParts.map(
               (item) => {
                 const idx = masterData.findIndex((m) => m === item);
                 const primaryVal = getPrimaryValue(item) || "N/A";
-                // build display values for the parts list for easier debugging
                 const displayFields = Array.isArray(settings.displayFields)
                   ? settings.displayFields
                   : settings.displayField
                   ? [settings.displayField]
-                  : null;
+                  : [];
                 const displayVals = (displayFields || []).map((fid) => ({
                   id: fid,
                   val: getValueFromRowStrict(item, fid) || "",
@@ -2586,29 +2948,44 @@
               }
             );
           } catch (e) {
-            console.warn(
-              "renderPartsList: failed to snapshot parts list for debug",
-              e
-            );
+            console.warn("renderPartsList: failed debug snapshot", e);
           }
-          if (parts.length === 0) {
+
+          if (!partsList) return;
+          if (safeParts.length === 0) {
             partsList.innerHTML =
               '<div class="no-results">No matching parts found</div>';
             return;
           }
 
-          partsList.innerHTML = parts
+          partsList.innerHTML = safeParts
             .map((item) => {
-              // Try to find the exact index in masterData; if not present, we'll try matching by primary value later
-              let idx = masterData.findIndex((m) => m === item);
-              const primaryVal = getPrimaryValue(item) || "N/A";
-              if (idx === -1) {
-                // Fallback: find by primary value equality
-                const pv = primaryVal;
-                if (pv && pv !== "N/A") {
-                  idx = masterData.findIndex((m) => {
-                    const mv = getPrimaryValue(m) || "";
-                    return mv && String(mv).trim() === String(pv).trim();
+              // Determine corresponding index in masterRawRows whenever possible
+              let idx = -1;
+              const primaryId = getPrimaryFieldId();
+              let primaryVal = "N/A";
+
+              if (Array.isArray(item)) {
+                idx = masterRawRows.findIndex((r) => r === item);
+                primaryVal = getValueFromRow(item, primaryId) || "N/A";
+                if (idx === -1 && primaryVal && primaryVal !== "N/A") {
+                  idx = masterRawRows.findIndex((r) => {
+                    const mv = getValueFromRow(r, primaryId) || "";
+                    return (
+                      mv && String(mv).trim() === String(primaryVal).trim()
+                    );
+                  });
+                }
+              } else {
+                // item might be legacy mapped object
+                idx = masterData.findIndex((m) => m === item);
+                primaryVal = getPrimaryValue(item) || "N/A";
+                if (idx === -1 && primaryVal && primaryVal !== "N/A") {
+                  idx = masterRawRows.findIndex((r) => {
+                    const mv = getValueFromRow(r, primaryId) || "";
+                    return (
+                      mv && String(mv).trim() === String(primaryVal).trim()
+                    );
                   });
                 }
               }
@@ -2658,9 +3035,15 @@
                   .join(" ");
               }
 
+              // Log exact raw expected primary value for debugging
+              try {
+                console.log(`Master row ${idx}: primary raw = ${primaryVal}`);
+              } catch (e) {}
+
               return `
           <li class="part-item" data-row-index="${idx}" data-primary-value="${primaryVal}">
             <div class="part-info">
+              <span style="color:#a6ffb3; font-weight:bold; margin-right:8px;">[#${idx}]</span>
               ${displayContent}
             </div>
           </li>`;
@@ -2668,15 +3051,341 @@
             .join("");
         }
 
-        function filterParts(searchTerm) {
-          const filtered = masterData.filter((item) => {
-            const search = searchTerm.toLowerCase();
-            // Search across all fields
-            return settings.fields.some((f) =>
-              getValueFromRow(item, f.id).toLowerCase().includes(search)
-            );
+        // Grouping runtime state and helpers
+        let _groupState = {
+          enabled: false,
+          levels: [],
+          selections: [],
+          currentFilteredRows: null,
+        };
+
+        function escapeHtml(s) {
+          try {
+            return String(s)
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#39;");
+          } catch (e) {
+            return "";
+          }
+        }
+
+        function computeUniqueValues(rows, headerKey) {
+          const counts = new Map();
+          (rows || []).forEach((r) => {
+            const v =
+              (r && (r[headerKey] !== undefined ? String(r[headerKey]) : "")) ||
+              "";
+            const key = String(v || "");
+            counts.set(key, (counts.get(key) || 0) + 1);
           });
-          renderPartsList(filtered);
+          return Array.from(counts.entries())
+            .map(([value, count]) => ({ value, count }))
+            .sort(
+              (a, b) => b.count - a.count || a.value.localeCompare(b.value)
+            );
+        }
+
+        // Render list of group values for a given level index
+        function ensureGroupRefreshButtonWired() {
+          const resetBtn = document.getElementById("group-reset-btn");
+          if (!resetBtn) return;
+          if (resetBtn.dataset.wired === "1") return;
+
+          const stop = (e) => {
+            try {
+              e.preventDefault();
+              e.stopPropagation();
+            } catch (err) {}
+          };
+
+          resetBtn.addEventListener("click", (e) => {
+            stop(e);
+            try {
+              if (_groupState) {
+                _groupState.selections = [];
+                _groupState.currentFilteredRows = null;
+              }
+              if (_groupState && _groupState.enabled) {
+                renderGroupValues(0);
+              } else {
+                renderPartsList(masterData);
+              }
+            } catch (err) {
+              console.error("Refresh button error:", err);
+              try {
+                renderPartsList(masterData);
+              } catch (e2) {}
+            }
+          });
+
+          resetBtn.dataset.wired = "1";
+        }
+
+        function getGroupLevelInfo(levelIndex) {
+          const lvl =
+            _groupState && _groupState.levels
+              ? _groupState.levels[levelIndex]
+              : null;
+          // Backward compatible: older code stored levels as strings
+          if (typeof lvl === "string") {
+            return { key: lvl, label: lvl };
+          }
+          if (lvl && typeof lvl === "object") {
+            const key = String(
+              lvl.key || lvl.headerCol || lvl.header || ""
+            ).trim();
+            const label = String(
+              lvl.label || lvl.header || lvl.key || ""
+            ).trim();
+            return { key, label: label || key };
+          }
+          return { key: "", label: "" };
+        }
+
+        function renderGroupValues(levelIndex) {
+          const groupControls = document.getElementById("group-controls");
+          const breadcrumb = document.getElementById("group-breadcrumb");
+          const resetBtn = document.getElementById("group-reset-btn");
+          const summary = document.getElementById("group-summary");
+
+          if (!groupControls || !breadcrumb || !resetBtn)
+            return renderPartsList(masterData);
+
+          // Ensure Refresh is always wired once
+          ensureGroupRefreshButtonWired();
+
+          groupControls.style.display = "block";
+
+          // start with masterData and apply prior selections
+          let rows = masterData.slice();
+          for (let i = 0; i < levelIndex; i++) {
+            const sel = _groupState.selections[i];
+            if (sel && sel.header) {
+              rows = rows.filter(
+                (r) => String(r[sel.header] || "") === String(sel.value || "")
+              );
+            }
+          }
+          _groupState.currentFilteredRows = rows;
+
+          const lvlInfo = getGroupLevelInfo(levelIndex);
+          const headerKey = lvlInfo.key;
+          const headerLabel = lvlInfo.label;
+          const uniques = computeUniqueValues(rows, headerKey);
+
+          breadcrumb.textContent =
+            _groupState.selections.map((s) => s.value).join(" » ") ||
+            `Level ${levelIndex + 1}: ${headerLabel}`;
+
+          // Summary text
+          try {
+            const totalExcel = Array.isArray(masterData)
+              ? masterData.length
+              : 0;
+            const currentPool = Array.isArray(rows) ? rows.length : 0;
+            const groupCount = Array.isArray(uniques) ? uniques.length : 0;
+            if (summary) {
+              summary.innerHTML = `
+                <div style="color: yellow; font-weight: bold; font-size: 14px; margin-bottom: 4px;">Total items found in Master Excel: ${totalExcel}</div>
+                <div>Items in current selection: <b>${currentPool}</b></div>
+                <div>Groups at this level: <b>${groupCount}</b></div>
+                <div style="margin-top: 6px; color: #ccc;">Select an item to navigate. Use Back/Refresh anytime.</div>
+              `;
+            }
+          } catch (e) {}
+
+          partsList.innerHTML = uniques
+            .map((u) => {
+              const pct = rows.length
+                ? Math.round((u.count / rows.length) * 100)
+                : 0;
+              const valueEnc = encodeURIComponent(String(u.value || ""));
+              const headerEnc = encodeURIComponent(String(headerKey || ""));
+              const titleText = String(u.value || "").trim()
+                ? String(u.value)
+                : `No ${headerLabel}`;
+              return `
+              <li class="group-value-item" data-value-enc="${valueEnc}" data-header-enc="${headerEnc}">
+                <div class="part-info" style="flex: 1;">
+                  <div class="group-card-title">${escapeHtml(titleText)}</div>
+                  <div class="group-card-subtitle">Group value for <b>${escapeHtml(
+                    headerLabel
+                  )}</b></div>
+                </div>
+                <div class="group-card-meta">
+                  <div><b>${u.count}</b> items</div>
+                  <div style="margin-top: 4px; opacity: 0.9;">${pct}% of current</div>
+                </div>
+              </li>`;
+            })
+            .join("");
+
+          partsList.querySelectorAll(".group-value-item").forEach((li) => {
+            li.addEventListener("click", () => {
+              const value = decodeURIComponent(li.dataset.valueEnc || "");
+              const header = decodeURIComponent(li.dataset.headerEnc || "");
+              _groupState.selections[levelIndex] = {
+                levelIndex,
+                header,
+                value,
+              };
+              const nextIndex = levelIndex + 1;
+              if (nextIndex >= (_groupState.levels || []).length) {
+                const filtered = masterData.filter((r) =>
+                  _groupState.selections.every(
+                    (s) => String(r[s.header] || "") === String(s.value || "")
+                  )
+                );
+                renderPartsList(filtered);
+              } else {
+                renderGroupValues(nextIndex);
+              }
+            });
+          });
+
+          // (handlers wired via ensureGroupNavButtonsWired)
+        }
+
+        // Decide whether to open grouped navigation or show the flat list.
+        // This is called from showPartsModal().
+        function maybeOpenGroupedPartsModal() {
+          const groupControls = document.getElementById("group-controls");
+
+          // Build grouping levels from persisted settings.groupingFields.
+          const groupingFields = Array.isArray(settings.groupingFields)
+            ? settings.groupingFields
+            : [];
+          const levels = groupingFields
+            .map((f) => {
+              if (!f) return null;
+              const key = String(f.headerCol || f.header || "").trim();
+              const label = String(f.header || f.label || key || "").trim();
+              if (!key) return null;
+              return { key, label: label || key };
+            })
+            .filter(Boolean);
+
+          // Reset state on open so Level‑1 always starts fresh.
+          _groupState.selections = [];
+          _groupState.currentFilteredRows = null;
+
+          if (!levels.length) {
+            _groupState.enabled = false;
+            _groupState.levels = [];
+            if (groupControls) groupControls.style.display = "none";
+            return renderPartsList(masterData);
+          }
+
+          _groupState.enabled = true;
+          _groupState.levels = levels;
+          return renderGroupValues(0);
+        }
+
+        // Expose for safety if other scopes call it
+        try {
+          window.maybeOpenGroupedPartsModal = maybeOpenGroupedPartsModal;
+        } catch (e) {}
+
+        function filterParts(searchTerm) {
+          const base =
+            _groupState &&
+            _groupState.enabled &&
+            _groupState.currentFilteredRows
+              ? _groupState.currentFilteredRows
+              : masterData;
+          const filtered = base.filter((item) => {
+            const search = String(searchTerm || "").toLowerCase();
+            if (!search) return true;
+            return settings.fields.some((f) => {
+              try {
+                const v = String(
+                  getValueFromRow(item, f.id) || ""
+                ).toLowerCase();
+                return v.includes(search);
+              } catch (e) {
+                return false;
+              }
+            });
+          });
+          // If grouping is active and we haven't completed all levels, re-render group values for current level
+          if (
+            _groupState &&
+            _groupState.enabled &&
+            _groupState.selections &&
+            _groupState.selections.length < (_groupState.levels || []).length
+          ) {
+            const levelIndex = _groupState.selections.length;
+            const headerKey = _groupState.levels[levelIndex];
+            const uniques = computeUniqueValues(filtered, headerKey);
+            const summary = document.getElementById("group-summary");
+            try {
+              const totalExcel = Array.isArray(masterData)
+                ? masterData.length
+                : 0;
+              const currentPool = Array.isArray(filtered) ? filtered.length : 0;
+              const groupCount = Array.isArray(uniques) ? uniques.length : 0;
+              if (summary) {
+                summary.innerHTML = `
+                  <div style="color: yellow; font-weight: bold; font-size: 14px; margin-bottom: 4px;">Total items found in Excel: ${totalExcel}</div>
+                  <div>Items matching search in current selection: <b>${currentPool}</b></div>
+                  <div>Groups at this level: <b>${groupCount}</b></div>
+                  <div style="margin-top: 6px; color: #ccc;">Tip: clear search to see all groups.</div>
+                `;
+              }
+            } catch (e) {}
+            partsList.innerHTML = uniques
+              .map(
+                (u) => `
+              <li class="group-value-item" data-value-enc="${encodeURIComponent(
+                String(u.value || "")
+              )}" data-header-enc="${encodeURIComponent(
+                  String(headerKey || "")
+                )}">
+                <div class="part-info" style="flex: 1;">
+                  <div class="group-card-title">${escapeHtml(
+                    String(u.value || "").trim()
+                      ? String(u.value)
+                      : `No ${headerKey}`
+                  )}</div>
+                  <div class="group-card-subtitle">Group value for <b>${escapeHtml(
+                    headerKey
+                  )}</b></div>
+                </div>
+                <div class="group-card-meta">
+                  <div><b>${u.count}</b> items</div>
+                </div>
+              </li>`
+              )
+              .join("");
+            partsList.querySelectorAll(".group-value-item").forEach((li) => {
+              li.addEventListener("click", () => {
+                const value = decodeURIComponent(li.dataset.valueEnc || "");
+                const header = decodeURIComponent(li.dataset.headerEnc || "");
+                const lvl = _groupState.selections.length;
+                _groupState.selections[lvl] = {
+                  levelIndex: lvl,
+                  header,
+                  value,
+                };
+                const nextIndex = lvl + 1;
+                if (nextIndex >= _groupState.levels.length) {
+                  const filteredParts = masterData.filter((r) =>
+                    _groupState.selections.every(
+                      (s) => String(r[s.header] || "") === String(s.value || "")
+                    )
+                  );
+                  renderPartsList(filteredParts);
+                } else {
+                  renderGroupValues(nextIndex);
+                }
+              });
+            });
+          } else {
+            renderPartsList(filtered);
+          }
         }
 
         // Function to show PIN verification for master list (uses PIN + 5)
@@ -2780,17 +3489,81 @@
               }
             }
 
-            // Update the currently selected master row reference
-            currentSelectedRow = partDetails;
+            // Update the currently selected master row reference (use raw Excel row when available)
+            const rawRow =
+              Number.isInteger(rowIndex) &&
+              rowIndex >= 0 &&
+              masterRawRows[rowIndex]
+                ? masterRawRows[rowIndex]
+                : partDetails;
+            currentSelectedRow = rawRow;
+            try {
+              window.currentSelectedRow = rawRow;
+            } catch (e) {}
 
-            // Populate all dynamic fields from selected row
-            if (partDetails) {
+            // Populate all dynamic fields from selected raw row (prefer exact Excel values)
+            if (rawRow) {
               settings.fields.forEach((field) => {
                 const input = document.getElementById(field.id);
                 if (input) {
-                  input.value = getValueFromRow(partDetails, field.id) || "";
+                  input.value = getValueFromRow(rawRow, field.id) || "";
                 }
               });
+            }
+
+            // Console-log the loaded row index and a full header->value map for debugging
+            try {
+              const rowIdx = Number.isInteger(rowIndex) ? rowIndex : -1;
+              const headerMap = {};
+              try {
+                (headerInfos || []).forEach((hi, i) => {
+                  const key = (hi && (hi.name || hi.col)) || String(i);
+                  let val = "";
+                  try {
+                    if (Array.isArray(rawRow)) {
+                      val =
+                        rawRow[i] !== undefined && rawRow[i] !== null
+                          ? String(rawRow[i])
+                          : "";
+                    } else if (rawRow && typeof rawRow === "object") {
+                      if (hi && hi.col && rawRow.hasOwnProperty(hi.col))
+                        val = String(rawRow[hi.col] || "");
+                      else if (hi && hi.name && rawRow.hasOwnProperty(hi.name))
+                        val = String(rawRow[hi.name] || "");
+                      else {
+                        // try common keys
+                        val = String(
+                          rawRow[
+                            hi && hi.uniqueKey
+                              ? hi.uniqueKey
+                              : hi && hi.norm
+                              ? hi.norm
+                              : ""
+                          ] || ""
+                        );
+                      }
+                    }
+                  } catch (e) {
+                    val = "";
+                  }
+                  headerMap[key] = val;
+                });
+              } catch (e) {}
+              console.info("Master row loaded into inputs", {
+                rowIndex: rowIdx,
+                headerMap: headerMap,
+                rawRow: rawRow,
+              });
+              // also expose on debug object for later inspection
+              try {
+                window._masterDataDebug = window._masterDataDebug || {};
+                window._masterDataDebug.lastSelected = {
+                  rowIndex: rowIdx,
+                  headerMap: headerMap,
+                };
+              } catch (e) {}
+            } catch (e) {
+              console.warn("Failed to log selected master row", e);
             }
 
             // Reset scan data display (don't clear text, just remove success highlight)
@@ -2851,6 +3624,13 @@
             "display-field-container"
           );
           const scanOpSelect = document.getElementById("scan-op-select");
+
+          // Remove any previously injected Grouping UI blocks (prevents duplicates)
+          try {
+            document
+              .querySelectorAll("#grouping-container")
+              .forEach((el) => el.remove());
+          } catch (e) {}
 
           // Clear UI
           container.innerHTML = "";
@@ -3163,6 +3943,116 @@
 
           updateHiddenList();
 
+          // --- Grouping Levels UI ---
+          (function initGroupingUI() {
+            // If a previous instance exists, remove it (defensive)
+            try {
+              document
+                .querySelectorAll("#grouping-container")
+                .forEach((el) => el.remove());
+            } catch (e) {}
+
+            // Create container and controls for grouping levels
+            const groupingContainer = document.createElement("div");
+            groupingContainer.id = "grouping-container";
+            groupingContainer.style.marginTop = "12px";
+            groupingContainer.innerHTML = `
+              <label style="color:yellow; display:block; margin-bottom:6px">Grouping Levels (ordered)</label>
+              <div id="grouping-levels" style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px"></div>
+              <div style="display:flex; gap:8px;">
+                <button id="add-group-level" style="padding:6px 10px; background:#3399ff; color:white; border:none; border-radius:4px; cursor:pointer">+ Add Level</button>
+                <span style="color:#ccc; align-self:center; font-size:12px">Choose fields and arrange order for Level‑1 → Level‑N grouping.</span>
+              </div>
+            `;
+
+            // Insert grouping UI after mappings container
+            try {
+              container.parentNode.insertBefore(
+                groupingContainer,
+                container.nextSibling
+              );
+            } catch (e) {}
+
+            const levelsDiv =
+              groupingContainer.querySelector("#grouping-levels");
+            const addBtn = groupingContainer.querySelector("#add-group-level");
+
+            function createGroupingRow(selectedFieldId) {
+              const row = document.createElement("div");
+              row.style.display = "flex";
+              row.style.gap = "6px";
+              row.style.alignItems = "center";
+              row.dataset.groupLevel = Date.now();
+
+              const select = document.createElement("select");
+              select.style.flex = "1";
+              (settings.fields || []).forEach((f) => {
+                const opt = document.createElement("option");
+                opt.value = f.id;
+                opt.textContent = f.label || f.id;
+                if (f.id === selectedFieldId) opt.selected = true;
+                select.appendChild(opt);
+              });
+
+              const up = document.createElement("button");
+              up.textContent = "↑";
+              up.title = "Move up";
+              up.style.padding = "4px 8px";
+
+              const down = document.createElement("button");
+              down.textContent = "↓";
+              down.title = "Move down";
+              down.style.padding = "4px 8px";
+
+              const remove = document.createElement("button");
+              remove.textContent = "✕";
+              remove.title = "Remove level";
+              remove.style.padding = "4px 8px";
+              remove.style.background = "#ff3b30";
+              remove.style.color = "#fff";
+
+              up.onclick = () => {
+                const prev = row.previousElementSibling;
+                if (prev) levelsDiv.insertBefore(row, prev);
+              };
+              down.onclick = () => {
+                const next = row.nextElementSibling;
+                if (next) levelsDiv.insertBefore(next, row);
+              };
+              remove.onclick = () => row.remove();
+
+              row.appendChild(select);
+              row.appendChild(up);
+              row.appendChild(down);
+              row.appendChild(remove);
+              return row;
+            }
+
+            // Populate existing grouping fields if present
+            try {
+              const existing = Array.isArray(settings.groupingFields)
+                ? settings.groupingFields
+                : [];
+              if (existing.length > 0) {
+                existing.forEach((g) => {
+                  const fid = g.id || g.fieldId || g.field || "";
+                  levelsDiv.appendChild(createGroupingRow(fid));
+                });
+              }
+            } catch (e) {}
+
+            addBtn.addEventListener("click", () => {
+              levelsDiv.appendChild(
+                createGroupingRow(
+                  (settings.fields &&
+                    settings.fields[0] &&
+                    settings.fields[0].id) ||
+                    ""
+                )
+              );
+            });
+          })();
+
           // Show modal
           modal.style.display = "block";
         }
@@ -3255,6 +4145,33 @@
           // Read showMultiScanPanel checkbox state
           const showMulti = document.getElementById("show-multi-scan-panel");
           if (showMulti) settings.showMultiScanPanel = !!showMulti.checked;
+          // Read grouping levels from the Grouping UI if present
+          try {
+            const levelsDiv = document.getElementById("grouping-levels");
+            if (levelsDiv) {
+              const rows = Array.from(
+                levelsDiv.querySelectorAll("div[data-group-level]")
+              );
+              const groupingFields = rows
+                .map((r) => {
+                  const sel = r.querySelector("select");
+                  const fid = sel ? sel.value : null;
+                  if (!fid) return null;
+                  const f = (settings.fields || []).find(
+                    (x) => x.id === fid
+                  ) || { id: fid, label: fid };
+                  return {
+                    id: f.id,
+                    label: f.label,
+                    header: f.header,
+                    headerCol: f.headerCol,
+                  };
+                })
+                .filter((x) => x && x.id);
+              settings.groupingFields = groupingFields;
+            }
+          } catch (e) {}
+
           saveSettings();
           rebuildInputUI();
           document.getElementById("settings-modal").style.display = "none";
@@ -3297,6 +4214,23 @@
             () =>
               (document.getElementById("settings-modal").style.display = "none")
           );
+
+        // Refresh header mappings from master Excel
+        document
+          .getElementById("refresh-settings")
+          .addEventListener("click", async () => {
+            // Prevent the auto-open of the Master modal during refresh
+            window._suppressAutoOpenMasterOnLoad = true;
+            try {
+              await openSettingsModal();
+              showNotification("Headers refreshed from master Excel", "info");
+            } catch (e) {
+              console.error("Refresh headers failed:", e);
+              showNotification("Failed to refresh headers", "error");
+            } finally {
+              window._suppressAutoOpenMasterOnLoad = false;
+            }
+          });
         document
           .getElementById("save-settings")
           .addEventListener("click", saveSettingsFromModal);
@@ -3321,6 +4255,82 @@
             // Load today's scan logs from file
             const todaysLogs = await loadTodaysScanLogs();
 
+            // Build dynamic column list using configured fields and include scan-by
+            const configuredHeaders = (settings.fields || []).map(
+              (f) => f.header || f.label || f.id
+            );
+            let columns = [
+              "Date",
+              "Time",
+              ...configuredHeaders,
+              "scan-by",
+              "Scanned Code",
+              "Scanner",
+              "Status",
+            ];
+            // Deduplicate while preserving order
+            const seenCols = new Set();
+            columns = columns.filter((c) => {
+              if (seenCols.has(c)) return false;
+              seenCols.add(c);
+              return true;
+            });
+
+            const headerHtml = columns.map((c) => `<th>${c}</th>`).join("");
+
+            const rowsHtml = todaysLogs
+              .map((log) => {
+                const cls =
+                  log.matchStatus === "MATCHED" ? "match" : "no-match";
+                const cells = columns
+                  .map((col) => {
+                    if (col === "Date")
+                      return `<td>${log.timestamp.toLocaleDateString(
+                        "en-GB"
+                      )}</td>`;
+                    if (col === "Time")
+                      return `<td>${log.timestamp.toLocaleTimeString(
+                        "en-GB"
+                      )}</td>`;
+                    // Prefer raw saved value (from file), fallback to computed fields
+                    const raw = log.raw || {};
+                    if (raw.hasOwnProperty(col)) return `<td>${raw[col]}</td>`;
+                    if (col === "Scanned Code")
+                      return `<td>${log.scannedCode || ""}</td>`;
+                    if (col === "Scanner")
+                      return `<td>${log.scannerInfo || ""}</td>`;
+                    if (col === "Status")
+                      return `<td>${log.matchStatus || ""}</td>`;
+                    if (col === "scan-by")
+                      return `<td>${
+                        raw["scan-by"] ||
+                        raw["Scanner"] ||
+                        log.scannerInfo ||
+                        ""
+                      }</td>`;
+                    // Any configured field that wasn't in raw -> try common named properties
+                    if (
+                      col ===
+                      (settings.displayField &&
+                        (
+                          (settings.fields || []).find(
+                            (f) => f.id === settings.displayField
+                          ) || {}
+                        ).header)
+                    )
+                      return `<td>${log.partCode || ""}</td>`;
+                    if (col === "Part Name")
+                      return `<td>${log.partName || ""}</td>`;
+                    if (col === "Customer")
+                      return `<td>${log.customer || ""}</td>`;
+                    return `<td></td>`;
+                  })
+                  .join("");
+
+                return `<tr class="${cls}">${cells}</tr>`;
+              })
+              .join("");
+
             // History modal content
             const historyHtml = `
           ${
@@ -3330,41 +4340,18 @@
           }
           <div class="modal-header">
             <h2 class="modal-title">Today's Scan History</h2>
+            <button id="export-logs">Export</button>
             <button class="close-modal">&times;</button>
           </div>
           <div class="scan-logs">
             <table class="logs-table">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Time</th>
-                  <th>Part Code</th>
-                  <th>Part Name</th>
-                  <th>Customer</th>
-                  <th>Scanned Code</th>
-                  <th>Scanner</th>
-                  <th>Status</th>
+                  ${headerHtml}
                 </tr>
               </thead>
               <tbody>
-                ${todaysLogs
-                  .map(
-                    (log) => `
-                  <tr class="${
-                    log.matchStatus === "MATCHED" ? "match" : "no-match"
-                  }">
-                    <td>${log.timestamp.toLocaleDateString("en-GB")}</td>
-                    <td>${log.timestamp.toLocaleTimeString("en-GB")}</td>
-                    <td>${log.partCode}</td>
-                    <td>${log.partName}</td>
-                    <td>${log.customer}</td>
-                    <td>${log.scannedCode}</td>
-                    <td>${log.scannerInfo}</td>
-                    <td>${log.matchStatus}</td>
-                  </tr>
-                `
-                  )
-                  .join("")}
+                ${rowsHtml}
               </tbody>
             </table>
           </div>
@@ -3401,17 +4388,26 @@
                   return;
                 }
 
-                // Prepare today's logs for export
-                const logsToExport = todaysLogs.map((log) => ({
-                  Date: log.timestamp.toLocaleDateString("en-GB"),
-                  Time: log.timestamp.toLocaleTimeString("en-GB"),
-                  "Part Code": log.partCode,
-                  "Part Name": log.partName,
-                  Customer: log.customer,
-                  "Scanned Code": log.scannedCode,
-                  Scanner: log.scannerInfo,
-                  Status: log.matchStatus,
-                }));
+                // Prepare today's logs for export using configured fields
+                const logsToExport = todaysLogs.map((log) => {
+                  const row = {};
+                  row["Date"] = log.timestamp.toLocaleDateString("en-GB");
+                  row["Time"] = log.timestamp.toLocaleTimeString("en-GB");
+
+                  (settings.fields || []).forEach((f) => {
+                    const header = f.header || f.label || f.id;
+                    row[header] = (log.raw && log.raw[header]) || "";
+                  });
+
+                  row["scan-by"] =
+                    (log.raw && (log.raw["scan-by"] || log.raw["Scanner"])) ||
+                    log.scannerInfo ||
+                    "";
+                  row["Scanned Code"] = log.scannedCode;
+                  row["Scanner"] = log.scannerInfo;
+                  row["Status"] = log.matchStatus;
+                  return row;
+                });
 
                 // Sort by date and time descending (newest first)
                 logsToExport.sort((a, b) => {
@@ -3513,7 +4509,7 @@
           if (!allowed) {
             return;
           }
-          originalHandleScan(scannedCode);
+          await originalHandleScan(scannedCode);
         };
 
         // On initial load, clear part code, part name, customer, scan by and mark required fields red
@@ -3546,7 +4542,7 @@
           await originalLoadMasterData();
           clearInitialFields();
           // Initially open master modal to select part code first, if data loaded
-          if (masterData.length > 0) {
+          if (!window._suppressAutoOpenMasterOnLoad && masterData.length > 0) {
             document.getElementById("btn-master").click();
           }
         };
@@ -3622,7 +4618,7 @@
           />
           <span id="logo-text" class="logo-text">GAD</span>
         </div>
-        <h1 id="page-title">Terminal verification System</h1>
+        <h1 id="page-title">Crimping Terminal Verification System</h1>
         <nav id="nav-buttons" class="buttons">
           <button id="btn-master">Master</button>
           <button id="btn-history">History</button>
@@ -3827,7 +4823,73 @@
       <div class="modal-content">
         <div class="modal-header">
           <h2 class="modal-title">Master Parts List</h2>
-          <button class="close-modal">&times;</button>
+          <div style="display: flex; gap: 8px; align-items: center">
+            <button
+              id="refresh-master-btn"
+              type="button"
+              style="
+                padding: 6px 10px;
+                background: #1f8b4c;
+                color: #fff;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+              "
+            >
+              Refresh
+            </button>
+            <button class="close-modal">&times;</button>
+          </div>
+        </div>
+        <div id="group-controls" style="display: none; margin-bottom: 12px">
+          <div
+            style="
+              display: flex;
+              gap: 8px;
+              align-items: center;
+              justify-content: space-between;
+            "
+          >
+            <div
+              id="group-breadcrumb"
+              style="color: yellow; font-weight: bold; flex: 1"
+            ></div>
+            <div style="display: flex; gap: 8px">
+              <button
+                id="group-reset-btn"
+                type="button"
+                style="
+                  padding: 6px 10px;
+                  background: #ff9800;
+                  color: #022;
+                  border: none;
+                  border-radius: 4px;
+                  cursor: pointer;
+                "
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+          <div
+            id="group-hint"
+            style="color: #ccc; font-size: 12px; margin-top: 6px"
+          >
+            Select an item to navigate. Use Refresh to restart.
+          </div>
+          <div
+            id="group-summary"
+            style="
+              margin-top: 10px;
+              padding: 10px 12px;
+              border-radius: 12px;
+              background: #00264d;
+              color: #fff;
+              border: 1px solid rgba(255, 255, 255, 0.12);
+              font-size: 13px;
+              line-height: 1.3;
+            "
+          ></div>
         </div>
         <input
           type="text"
@@ -3959,6 +5021,18 @@
               justify-content: flex-end;
             "
           >
+            <button
+              id="refresh-settings"
+              style="
+                background: #1f4e79;
+                padding: 8px 16px;
+                border-radius: 6px;
+                border: none;
+                color: white;
+              "
+            >
+              Refresh Master Excel
+            </button>
             <button
               id="save-settings"
               style="
