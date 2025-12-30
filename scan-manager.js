@@ -157,6 +157,21 @@
         this._renderPanel(req);
         this._highlightPendingFields();
 
+        // Broadcast session update to mobile clients (if available)
+        try {
+          const ipcRenderer = require && require('electron') && require('electron').ipcRenderer;
+          try {
+            const fieldsInfo = (settingFields || []).filter(f=>req.includes(f.id)).map(f=>({ id: f.id, label: f.label }));
+            const active = this.scanSession._manualActive || (req && req.length>0 ? req[0] : null);
+            ipcRenderer && ipcRenderer.invoke && ipcRenderer.invoke('broadcast-session-update', {
+              selectedRowIndex: window.currentSelectedRowIndex || null,
+              requiredFields: req,
+              fields: fieldsInfo,
+              activeField: active
+            });
+          } catch (e) {}
+        } catch (e) {}
+
         // Attach click handlers to inputs so operator can manually pick active field
         try {
           (req || []).forEach((fid) => {
@@ -206,6 +221,20 @@
           } catch (e) {}
         }
       }
+      // notify mobile clients about active field change
+      try {
+        const ipcRenderer = require && require('electron') && require('electron').ipcRenderer;
+        try {
+          const fieldsInfo = (window.settings && window.settings.fields || []).filter(f=>fields.includes(f.id)).map(f=>({ id: f.id, label: f.label }));
+          const activeField = (this.scanSession._manualActive && fields.includes(this.scanSession._manualActive)) ? this.scanSession._manualActive : first;
+          ipcRenderer && ipcRenderer.invoke && ipcRenderer.invoke('broadcast-session-update', {
+            selectedRowIndex: window.currentSelectedRowIndex || null,
+            requiredFields: fields,
+            fields: fieldsInfo,
+            activeField: activeField
+          });
+        } catch (e) {}
+      } catch (e) {}
       // update panel visuals
       this._updatePanelStatus();
     },
@@ -234,6 +263,19 @@
           try { const lab = (window.settings && window.settings.fields || []).find(f=>f.id===fid)?.label || fid; /* advanced to active field (silent) */ } catch(e){}
           }
           this._updatePanelStatus();
+          // broadcast the new active field
+          try {
+            const ipcRenderer = require && require('electron') && require('electron').ipcRenderer;
+            try {
+              const fieldsInfo = (window.settings && window.settings.fields || []).filter(f=>fields.includes(f)).map(f=>({ id: f.id, label: f.label }));
+              ipcRenderer && ipcRenderer.invoke && ipcRenderer.invoke('broadcast-session-update', {
+                selectedRowIndex: window.currentSelectedRowIndex || null,
+                requiredFields: fields,
+                fields: fieldsInfo,
+                activeField: fid
+              });
+            } catch(e){}
+          } catch(e){}
           return fid;
         }
       }
@@ -367,6 +409,18 @@
         try { const lab = (window.settings && window.settings.fields || []).find(f=>f.id===fid)?.label || fid; /* manual active field set (silent) */ } catch(e){}
         // ensure panel reflects manual active
         try { this._updatePanelStatus(); } catch (e) {}
+        // Broadcast manual active change to mobile clients
+        try {
+          const ipcRenderer = require && require('electron') && require('electron').ipcRenderer;
+          try {
+            ipcRenderer && ipcRenderer.invoke && ipcRenderer.invoke('broadcast-session-update', {
+              selectedRowIndex: window.currentSelectedRowIndex || null,
+              requiredFields: this.scanSession.requiredFields || [],
+              matchedFields: Array.from(this.scanSession.matchedFields || []),
+              activeField: this.scanSession._manualActive || null
+            });
+          } catch (e) {}
+        } catch (e) {}
       } catch (e) {
         console.error('scanManager._setManualActiveField error', e);
       }
@@ -615,6 +669,18 @@
         try { this._highlightPendingFields(); } catch (e) {}
         try { this._updatePanelStatus(); } catch (e) {}
         try { this._showReadyState(); } catch (e) {}
+        // Broadcast session reset/update to mobile clients
+        try {
+          const ipcRenderer = require && require('electron') && require('electron').ipcRenderer;
+          try {
+            ipcRenderer && ipcRenderer.invoke && ipcRenderer.invoke('broadcast-session-update', {
+              selectedRowIndex: window.currentSelectedRowIndex || null,
+              requiredFields: this.scanSession.requiredFields || [],
+              matchedFields: Array.from(this.scanSession.matchedFields || []),
+              activeField: this.scanSession._manualActive || (this.scanSession.requiredFields && this.scanSession.requiredFields[0]) || null
+            });
+          } catch (e) {}
+        } catch (e) {}
       } catch (e) {
         console.error('scanManager._onFinalPassProceed error', e);
       }
@@ -817,6 +883,18 @@
           // If operator had manually selected this field, clear manual active now
           if (this.scanSession._manualActive === currentField) this.scanSession._manualActive = null;
           const next = this._advanceToNextField();
+          // Broadcast updated session after successful match
+          try {
+            const ipcRenderer = require && require('electron') && require('electron').ipcRenderer;
+            try {
+              ipcRenderer && ipcRenderer.invoke && ipcRenderer.invoke('broadcast-session-update', {
+                selectedRowIndex: window.currentSelectedRowIndex || null,
+                requiredFields: this.scanSession.requiredFields || [],
+                matchedFields: Array.from(this.scanSession.matchedFields || []),
+                activeField: next || null
+              });
+            } catch (e) {}
+          } catch (e) {}
           // Intermediate matched field — do not log to console per final-only logging policy.
           // Refresh panel after marking match
           try { this._updatePanelStatus(); } catch (e) {}
@@ -936,6 +1014,19 @@
             }
           } catch (e) {}
           try { this._updatePanelStatus(); } catch(e) {}
+
+          // Broadcast failure and active field to mobile clients
+          try {
+            const ipcRenderer = require && require('electron') && require('electron').ipcRenderer;
+            try {
+              ipcRenderer && ipcRenderer.invoke && ipcRenderer.invoke('broadcast-session-update', {
+                selectedRowIndex: window.currentSelectedRowIndex || null,
+                requiredFields: this.scanSession.requiredFields || [],
+                matchedFields: Array.from(this.scanSession.matchedFields || []),
+                activeField: this.scanSession._manualActive || currentField
+              });
+            } catch (e) {}
+          } catch (e) {}
 
           try {
             // Detailed diagnostic output to help identify why NOT_MATCH occurred

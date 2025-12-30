@@ -796,6 +796,233 @@
         outline: none !important;
       }
     </style>
+
+    <!-- Local Server Modal -->
+
+    <div
+      id="web-server-modal"
+      class="modal"
+      style="display: none; z-index: 10020"
+    >
+      <div class="modal-content" style="max-width: 480px">
+        <div class="modal-header">
+          <h2 class="modal-title">Local LAN Server</h2>
+        </div>
+        <div style="padding: 16px">
+          <div
+            id="server-status-text"
+            style="margin-bottom: 8px; font-size: 14px"
+          >
+            Server status: unknown
+          </div>
+          <div
+            style="
+              display: flex;
+              gap: 8px;
+              margin-bottom: 8px;
+              align-items: center;
+            "
+          >
+            <select
+              id="server-display-ip"
+              style="flex: 1; padding: 6px"
+            ></select>
+            <button id="btn-refresh-ips" style="padding: 6px 8px">
+              Refresh
+            </button>
+          </div>
+          <div style="display: flex; gap: 8px; margin-bottom: 8px">
+            <button id="btn-generate-tls" style="flex: 1; padding: 8px">
+              Generate TLS
+            </button>
+            <button id="btn-start-stop" style="flex: 1; padding: 8px">
+              Start
+            </button>
+          </div>
+          <div
+            id="server-url"
+            style="word-break: break-all; margin-bottom: 8px; font-weight: 700"
+          ></div>
+          <div id="server-qr" style="margin-bottom: 8px"></div>
+          <div style="display: flex; gap: 8px">
+            <button id="btn-download-ca" style="padding: 8px">
+              Download CA
+            </button>
+            <button id="btn-close-server-modal" style="padding: 8px">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        try {
+          const init = async function () {
+            try {
+              const { ipcRenderer } = require("electron");
+
+              const btn = document.getElementById("btn-start-server");
+              const modal = document.getElementById("web-server-modal");
+              const closeBtn = document.getElementById(
+                "btn-close-server-modal"
+              );
+              const startStop = document.getElementById("btn-start-stop");
+              const genTls = document.getElementById("btn-generate-tls");
+              const refreshIps = document.getElementById("btn-refresh-ips");
+              const selectIp = document.getElementById("server-display-ip");
+              const statusText = document.getElementById("server-status-text");
+              const urlEl = document.getElementById("server-url");
+              const qrEl = document.getElementById("server-qr");
+              const downloadCa = document.getElementById("btn-download-ca");
+
+              if (!btn) return;
+
+              async function refreshStatus() {
+                try {
+                  const st = await ipcRenderer.invoke("get-server-status");
+                  if (st && st.isRunning) {
+                    if (statusText) statusText.textContent = "Server running";
+                    if (startStop) startStop.textContent = "Stop";
+                    // Prefer showing mobileUrl (if present) so QR opens mobile UI directly
+                    const displayUrl = st.mobileUrl || st.url || "";
+                    if (urlEl)
+                      urlEl.innerHTML = `<a href="${displayUrl}" target="_blank" rel="noreferrer noopener">${displayUrl}</a>`;
+                    if (qrEl && st.qrCode)
+                      qrEl.innerHTML = `<a href="${displayUrl}" target="_blank" rel="noreferrer noopener"><img src="${st.qrCode}" alt="qr"/></a>`;
+                  } else {
+                    if (statusText) statusText.textContent = "Server stopped";
+                    if (startStop) startStop.textContent = "Start";
+                    if (urlEl) urlEl.textContent = "";
+                    if (qrEl) qrEl.innerHTML = "";
+                  }
+                } catch (e) {
+                  console.error(e);
+                }
+              }
+
+              async function refreshIpsList() {
+                try {
+                  const res = await ipcRenderer.invoke("get-local-ips");
+                  if (!selectIp) return;
+                  selectIp.innerHTML = "";
+                  if (res && res.success && Array.isArray(res.ips)) {
+                    // Prefer wifi interfaces first, then lan, then others
+                    const order = { wifi: 0, lan: 1, other: 2 };
+                    const sorted = res.ips.slice().sort((a, b) => {
+                      const ta = (a.type || "other").toLowerCase();
+                      const tb = (b.type || "other").toLowerCase();
+                      return (order[ta] || 3) - (order[tb] || 3);
+                    });
+                    sorted.forEach((ip, idx) => {
+                      const o = document.createElement("option");
+                      o.value = ip.address;
+                      o.textContent = `${ip.address} (${ip.interface})`;
+                      selectIp.appendChild(o);
+                      // Auto-select the first (preferred) address
+                      if (idx === 0) selectIp.value = ip.address;
+                    });
+                  }
+                } catch (e) {
+                  console.error(e);
+                }
+              }
+
+              btn.addEventListener("click", async () => {
+                if (modal) modal.style.display = "block";
+                await refreshIpsList();
+                await refreshStatus();
+              });
+              if (closeBtn)
+                closeBtn.addEventListener("click", () => {
+                  if (modal) modal.style.display = "none";
+                });
+              if (
+                refreshIps &&
+                typeof refreshIps.addEventListener === "function"
+              )
+                refreshIps.addEventListener("click", refreshIpsList);
+
+              if (startStop)
+                startStop.addEventListener("click", async () => {
+                  try {
+                    if (startStop.textContent === "Start") {
+                      const addr = (selectIp && selectIp.value) || null;
+                      const r = await ipcRenderer.invoke(
+                        "start-web-server",
+                        addr
+                      );
+                      if (r && r.success) {
+                        await refreshStatus();
+                      } else {
+                        alert("Failed to start server: " + (r && r.error));
+                      }
+                    } else {
+                      const r = await ipcRenderer.invoke("stop-web-server");
+                      if (r && r.success) {
+                        await refreshStatus();
+                      } else {
+                        alert("Failed to stop server: " + (r && r.error));
+                      }
+                    }
+                  } catch (e) {
+                    console.error(e);
+                  }
+                });
+
+              if (genTls)
+                genTls.addEventListener("click", async () => {
+                  try {
+                    genTls.disabled = true;
+                    const r = await ipcRenderer.invoke(
+                      "regenerate-web-server-tls"
+                    );
+                    genTls.disabled = false;
+                    if (r && r.success) alert("Generated TLS certs");
+                    else alert("Failed to generate TLS: " + (r && r.error));
+                  } catch (e) {
+                    genTls.disabled = false;
+                    console.error(e);
+                  }
+                });
+
+              if (downloadCa)
+                downloadCa.addEventListener("click", async () => {
+                  try {
+                    const r = await ipcRenderer.invoke("get-ca-cert");
+                    if (r && r.success && r.cert) {
+                      const blob = new Blob([r.cert], {
+                        type: "application/x-pem-file",
+                      });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = "ca-cert.pem";
+                      document.body.appendChild(a);
+                      a.click();
+                      a.remove();
+                      URL.revokeObjectURL(url);
+                    } else {
+                      alert("CA not found. Generate TLS first.");
+                    }
+                  } catch (e) {
+                    console.error(e);
+                  }
+                });
+            } catch (err) {
+              console.error("server modal inner init error", err);
+            }
+          };
+
+          if (document.readyState === "loading")
+            document.addEventListener("DOMContentLoaded", init);
+          else init();
+        } catch (e) {
+          console.error("server modal init error", e);
+        }
+      })();
+    </script>
     <script>
       // Configuration
       const showSettings = true; // Set to false to hide settings button
@@ -1148,6 +1375,20 @@
                     if (resolvedRowIdx !== null) break;
                   }
                 }
+              } catch (e) {}
+
+              // Broadcast session update to connected mobile clients (best-effort)
+              try {
+                const { ipcRenderer } = require("electron");
+                try {
+                  ipcRenderer.invoke("broadcast-session-update", {
+                    selectedRowIndex: window.currentSelectedRowIndex,
+                    primaryValue:
+                      typeof getPrimaryValue === "function"
+                        ? getPrimaryValue(rawRow)
+                        : null,
+                  });
+                } catch (e) {}
               } catch (e) {}
             }
 
@@ -5485,6 +5726,7 @@
           <button id="btn-master">Master</button>
           <button id="btn-history">History</button>
           <button id="btn-settings">Settings</button>
+          <button id="btn-start-server" class="nav-button">Server</button>
         </nav>
       </header>
 
@@ -5974,6 +6216,71 @@
     >
       License expired or invalid. Please contact support to renew your license.
     </div>
+    <script>
+      try {
+        const { ipcRenderer } = require("electron");
+        ipcRenderer.on("mobile-scan", (event, data) => {
+          try {
+            const code =
+              (data && (data.code || data.scanned || data.scannedCode)) || data;
+
+            // If a focused element is an editable input/textarea, insert the code there
+            try {
+              const active = document.activeElement;
+              const isEditable =
+                active &&
+                (active.tagName === "INPUT" ||
+                  active.tagName === "TEXTAREA" ||
+                  active.isContentEditable);
+              const isReadOnly = active && (active.readOnly || active.disabled);
+              if (isEditable && !isReadOnly) {
+                try {
+                  // Insert value and dispatch input/change events so app handlers react
+                  // Do not force focus or synthesize Enter key to avoid stealing focus/submitting forms
+                  if (
+                    active.tagName === "INPUT" ||
+                    active.tagName === "TEXTAREA"
+                  ) {
+                    active.value = code;
+                  } else if (active.isContentEditable) {
+                    active.textContent = code;
+                  }
+                  const ev = new Event("input", { bubbles: true });
+                  active.dispatchEvent(ev);
+                  const ev2 = new Event("change", { bubbles: true });
+                  active.dispatchEvent(ev2);
+                  return;
+                } catch (e) {}
+              }
+            } catch (e) {}
+
+            // Otherwise, prefer the app's scan handling pipeline
+            try {
+              if (typeof handleScan === "function") return handleScan(code);
+            } catch (e) {}
+
+            // Fallback: put into primary field if available
+            try {
+              const primaryId =
+                (typeof getPrimaryFieldId === "function" &&
+                  getPrimaryFieldId()) ||
+                (window.settings &&
+                  window.settings.primaryFields &&
+                  window.settings.primaryFields[0]) ||
+                null;
+              if (primaryId) {
+                const el = document.getElementById(primaryId);
+                if (el && !(el.readOnly || el.disabled)) {
+                  el.value = code;
+                  el.dispatchEvent(new Event("input", { bubbles: true }));
+                  el.dispatchEvent(new Event("change", { bubbles: true }));
+                }
+              }
+            } catch (e) {}
+          } catch (e) {}
+        });
+      } catch (e) {}
+    </script>
     <script src="scan-manager.js"></script>
     <script src="load-master-data.js"></script>
   </body>
