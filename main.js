@@ -3,6 +3,16 @@ const path = require('path');
 const fs = require('fs');
 const XLSX = require('xlsx');
 
+// Main-process debug gate. Set process.env.APP_DEBUG=1 to enable verbose logs.
+const APP_DEBUG = !!process.env.APP_DEBUG;
+if (!APP_DEBUG) {
+  try {
+    console.log = function() {};
+    console.info = function() {};
+    console.warn = function() {};
+  } catch (e) {}
+}
+
 // Function to read Excel file with original format preservation
 async function readExcelFile(filePath) {
   try {

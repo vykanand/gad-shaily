@@ -188,7 +188,7 @@
         if (mEl) {
           mEl.classList.remove('scan-pending');
           mEl.classList.add('scan-active');
-          try { mEl.focus(); } catch (e) {}
+          try { if (window.safeFocus) window.safeFocus(mEl); else mEl.focus && mEl.focus(); } catch (e) {}
         }
         this._updatePanelStatus();
         return;
@@ -202,7 +202,7 @@
           firstInput.classList.remove("scan-pending");
           firstInput.classList.add("scan-active");
           try {
-            firstInput.focus();
+            try { if (window.safeFocus) window.safeFocus(firstInput); else firstInput.focus && firstInput.focus(); } catch (e) {}
           } catch (e) {}
         }
       }
@@ -230,7 +230,7 @@
           if (next) {
             next.classList.remove("scan-pending");
             next.classList.add("scan-active");
-            try { next.focus(); } catch (e) {}
+            try { if (window.safeFocus) window.safeFocus(next); else next.focus && next.focus(); } catch (e) {}
           try { const lab = (window.settings && window.settings.fields || []).find(f=>f.id===fid)?.label || fid; /* advanced to active field (silent) */ } catch(e){}
           }
           this._updatePanelStatus();
@@ -362,7 +362,7 @@
         if (el) {
           el.classList.remove('scan-pending', 'scan-failed');
           el.classList.add('scan-active');
-          try { el.focus(); } catch (e) {}
+          try { if (window.safeFocus) window.safeFocus(el); else el.focus && el.focus(); } catch (e) {}
         }
         try { const lab = (window.settings && window.settings.fields || []).find(f=>f.id===fid)?.label || fid; /* manual active field set (silent) */ } catch(e){}
         // ensure panel reflects manual active
@@ -589,7 +589,7 @@
         if (!modal) return;
         modal.style.display = 'flex';
         const btn = document.getElementById('final-pass-proceed-btn');
-        try { if (btn) btn.focus(); } catch (e) {}
+        try { if (btn) { if (window.safeFocus) window.safeFocus(btn); else btn.focus && btn.focus(); } } catch (e) {}
       } catch (e) { console.error('scanManager._showFinalPassModal error', e); }
     },
 
@@ -920,7 +920,7 @@
             inp.classList.remove("scan-active", "scan-pending", "scan-passed");
             inp.classList.add("scan-failed");
             // keep failed field as manual active so operator knows to retry it
-            try { this.scanSession._manualActive = currentField; if (inp.focus) inp.focus(); } catch (e) {}
+            try { this.scanSession._manualActive = currentField; if (window.safeFocus) window.safeFocus(inp); else inp.focus && inp.focus(); } catch (e) {}
             try { this._highlightPendingFields(); } catch(e) {}
           }
           // Update verification UI to show failed scan and clear after error handling
@@ -949,18 +949,31 @@
               // attempt to resolve Excel row index for the current target part
               let excelRowIndex = null;
               try {
-                const rawRows = window.masterRawRows || [];
-                if (Array.isArray(this.scanSession.targetPart)) {
-                  excelRowIndex = rawRows.findIndex(r => r === this.scanSession.targetPart);
-                } else if (this.scanSession.targetPart) {
-                  // try to match by primary value
-                  const pid = (typeof window.getPrimaryFieldId === 'function' && window.getPrimaryFieldId()) || (window.settings?.primaryFields?.[0]) || '';
-                  if (pid) {
-                    const pv = (typeof window.getValueFromRow === 'function') ? window.getValueFromRow(this.scanSession.targetPart, pid) : '';
-                    if (pv) {
-                      excelRowIndex = rawRows.findIndex(r => {
-                        try { return (typeof window.getValueFromRow === 'function' ? window.getValueFromRow(r, pid) : '') === pv; } catch(e) { return false; }
-                      });
+                // Prefer an explicitly stored row index on the scan session (set when a master item is selected)
+                if (
+                  this.scanSession &&
+                  typeof this.scanSession.targetPartRowIndex !== 'undefined' &&
+                  this.scanSession.targetPartRowIndex !== null
+                ) {
+                  const idx = Number(this.scanSession.targetPartRowIndex);
+                  if (!Number.isNaN(idx) && idx >= 0) excelRowIndex = idx;
+                }
+
+                // Fallback to previous behavior only if the explicit index is not available
+                if (excelRowIndex === null) {
+                  const rawRows = window.masterRawRows || [];
+                  if (Array.isArray(this.scanSession.targetPart)) {
+                    excelRowIndex = rawRows.findIndex(r => r === this.scanSession.targetPart);
+                  } else if (this.scanSession.targetPart) {
+                    // try to match by primary value
+                    const pid = (typeof window.getPrimaryFieldId === 'function' && window.getPrimaryFieldId()) || (window.settings?.primaryFields?.[0]) || '';
+                    if (pid) {
+                      const pv = (typeof window.getValueFromRow === 'function') ? window.getValueFromRow(this.scanSession.targetPart, pid) : '';
+                      if (pv) {
+                        excelRowIndex = rawRows.findIndex(r => {
+                          try { return (typeof window.getValueFromRow === 'function' ? window.getValueFromRow(r, pid) : '') === pv; } catch(e) { return false; }
+                        });
+                      }
                     }
                   }
                 }
@@ -1094,7 +1107,7 @@
               if (failedInp) {
                 failedInp.classList.remove("scan-failed");
                 failedInp.classList.add("scan-pending");
-                try { this.scanSession._manualActive = currentField; if (failedInp.focus) failedInp.focus(); } catch(e) {}
+                try { this.scanSession._manualActive = currentField; if (window.safeFocus) window.safeFocus(failedInp); else failedInp.focus && failedInp.focus(); } catch(e) {}
               }
               try { this._showReadyState(); } catch (e) { const passEl = document.getElementById("pass-status"); if (passEl) { passEl.textContent = "READY"; passEl.classList.remove("failed"); } }
               try { this._updatePanelStatus(); } catch(e) {}

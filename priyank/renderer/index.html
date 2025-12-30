@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>APL Apollo RMS</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="header">
+        <div class="header-left" style="display:flex;align-items:center;gap:10px">
+          <img id="app-logo" src="apl.png" alt="APL Apollo RMS" style="height:34px;width:auto;display:block;" />
+          <h1 style="margin:0;font-size:1.25rem;line-height:1;">APL Apollo RMS</h1>
+        </div>
+        <div class="header-actions">
+          <button id="btn-start-server" class="btn btn-success" style="display:none">
+            🌐 Start Server
+          </button>
+          <button id="btn-new-module" class="btn btn-primary">
+            + New Module
+          </button>
+          <button id="btn-sync-manager" class="btn btn-secondary">
+            🔄 Sync Manager
+          </button>
+          <button id="btn-settings" class="btn btn-secondary" style="display:none">
+            ⚙️ Settings
+          </button>
+        </div>
+
+       
+      </header>
+
+      <div class="main-container">
+        <aside class="sidebar">
+          <h3>Modules</h3>
+          <div id="modules-list" class="modules-list">
+            <p class="empty-state">
+              No modules yet. Create one to get started!
+            </p>
+          </div>
+        </aside>
+
+        <main class="content">
+          <div id="welcome-screen" class="welcome-screen">
+            <div style="display:flex;align-items:center;gap:12px">
+              <img id="welcome-logo" src="apl.png" alt="APL Apollo" style="margin-left:30%;height:40px;width:auto;display:block;margin-right:4px" />
+              <h2 style="margin:0">Welcome to APL Apollo RMS</h2>
+            </div>
+            <p>
+              Create and manage modules across local and remote data sources.
+            </p>
+            <div
+              id="modules-cards"
+              class="modules-cards"
+              style="margin-top: 18px"
+            >
+              <p class="empty-state">
+                No modules yet. Create one to get started!
+              </p>
+            </div>
+            <!-- Create Module moved to Settings -->
+          </div>
+
+          <div id="module-view" class="module-view" style="display: none">
+            <div class="module-header">
+              <div>
+                <h2 id="module-title">Module Name</h2>
+                <span id="module-mode-badge" class="badge">Online</span>
+              </div>
+              <div class="module-search" style="display:flex;align-items:center;gap:8px;margin-left:12px">
+                <input type="search" id="module-search" placeholder="Scan & Search" style="padding:6px;border-radius:6px;border:1px solid #ccc;min-width:220px" />
+                <button id="module-search-clear" class="btn btn-sm btn-secondary" title="Clear search">✖</button>
+                <div id="module-primary-search-indicator" style="margin-left:8px;display:none;font-size:0.85rem;color:#666">Searching by: <span id="module-primary-search-name" style="font-weight:600"></span></div>
+              </div>
+              <div class="module-actions">
+                <button
+                  id="btn-add-field"
+                  class="btn btn-secondary"
+                  style="display: none"
+                >
+                  + Add Field
+                </button>
+                <button id="btn-add-record" class="btn btn-primary">
+                  + Add Record
+                </button>
+                <button id="btn-refresh" class="btn btn-secondary">
+                  ↻ Refresh
+                </button>
+                <!-- settings button removed (not needed) -->
+                <button
+                  id="btn-delete-module"
+                  class="btn btn-link"
+                  title="Delete module"
+                >
+                  🗑 Delete
+                </button>
+              </div>
+            </div>
+
+            <!-- Scanner Modal (responsive for mobile & desktop) -->
+            <div id="scanner-modal" class="modal">
+              <div class="modal-content modal-large">
+                <div class="modal-header">
+                  <h3>Scan QR / Barcode</h3>
+                  <span class="close" id="scanner-close">&times;</span>
+                </div>
+                <div class="modal-body scanner-body">
+                  <div id="scan" class="scan-container">
+                    <video id="vid" class="scan-video" autoplay playsinline></video>
+                    <div id="accessMessage" class="position-absolute top-50 start-50 fw-400 d-flex flex-column align-items-center justify-content-center">
+                      <span id="accessMessage-text" class="text-center text-white fs-6">Use your webcam to Scan</span>
+                    </div>
+                    <div id="cameraError" class="position-absolute top-50 start-50 fw-400 d-none text-center text-white">
+                      <p>Camera access denied. Please allow camera permissions and try again.</p>
+                      <button id="retryCameraBtn" class="btn btn-light mt-2">Retry Camera</button>
+                    </div>
+                    <div id="scan-result" class="d-none scan-result-center">
+                      <div class="scan-result-row d-flex flex-column align-items-start gap-2">
+                        <span id='qr-data-type' class="qr-type-label">Type: URL</span>
+                        <a id="url-result" class="text-decoration-underline text-wrap" style="overflow-wrap: break-word;"></a>
+                        <div class="d-flex gap-2">
+                          <button class="fs-6 scan-again btn">Scan again</button>
+                          <button id="use-scanned" class="fs-6 btn btn-success">Use Scanned</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <canvas id="canvas" style="display: none;"></canvas>
+                  <!-- Scanner debug log (visible when camera active) -->
+                  <div id="scanner-debug" class="scanner-debug d-none">
+                    <div id="scanner-debug-header" class="scanner-debug-header">Logs</div>
+                    <div id="scanner-debug-content" class="scanner-debug-content"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div id="data-table-container" class="table-container">
+                                <table id="data-table" class="data-table">
+                                  <thead id="table-head"></thead>
+                                  <tbody id="table-body"></tbody>
+                                </table>
+                                <p id="no-data-message" class="empty-state" style="display: none">No records found</p>
+                              </div>
+                            </div>
+                          </main>
+                        </div>
+
+                        <!-- Module Modal -->
+                        <div id="module-modal" class="modal">
+                          <div class="modal-content">
+                            <div class="modal-header">
+                              <h3 id="module-modal-title">Create Module</h3>
+                              <span class="close">&times;</span>
+                            </div>
+                            <div class="modal-body">
+                              <form id="module-form">
+                                <div class="form-group">
+                                  <label for="module-name">Module Name *</label>
+                                  <input type="text" id="module-name" required />
+                                </div>
+
+                                <div class="form-group">
+                                  <label for="module-mode">Mode *</label>
+                                  <select id="module-mode" required>
+                                    <option value="offline">Offline (Local Excel/JSON)</option>
+                                    <option value="online">Online (REST API)</option>
+                                  </select>
+                                </div>
+
+                                <div id="online-config" style="display: none">
+                                  <h4>API Configuration</h4>
+
+                                  <div class="form-group">
+                                    <label for="api-list">List/Read All API *</label>
+                                    <input type="text" id="api-list" placeholder="https://api.example.com/items" />
+                                  </div>
+
+                                  <div class="form-group">
+                                    <label for="api-create">Create API *</label>
+                                    <input type="text" id="api-create" placeholder="https://api.example.com/items" />
+                                  </div>
+
+                                  <div class="form-group">
+                                    <label for="api-update">Update API * (use {id} for record ID)</label>
+                                    <input type="text" id="api-update" placeholder="https://api.example.com/items/{id}" />
+                                  </div>
+
+                                  <div class="form-group">
+                                    <label for="api-delete">Delete API * (use {id} for record ID)</label>
+                                    <input type="text" id="api-delete" placeholder="https://api.example.com/items/{id}" />
+                                  </div>
+
+                                  <div class="form-group">
+                                    <label for="api-headers">Headers (JSON format)</label>
+                                    <textarea id="api-headers" rows="3" placeholder='{"Authorization": "Bearer token", "Content-Type": "application/json"}'></textarea>
+                                  </div>
+
+                                  <div class="form-group">
+                                    <label for="api-id-field">ID Field Name</label>
+                                    <input type="text" id="api-id-field" value="id" placeholder="id" />
+                                  </div>
+
+                                  <button type="button" id="btn-fetch-metadata" class="btn btn-secondary">Fetch Metadata</button>
+                                  <div id="metadata-preview" style="display: none; margin-top: 10px">
+                                    <p><strong>Detected Fields:</strong></p>
+                                    <ul id="metadata-fields-list"></ul>
+                                  </div>
+                                </div>
+
+                                <div id="offline-config">
+                                  <p class="info-text">Offline modules will create local JSON and Excel files automatically.</p>
+                                </div>
+                                <div class="form-group" id="primary-search-field-group" style="display:none; margin-top:8px">
+                                  <label for="primary-search-field-input">Primary Search Field (Dev only)</label>
+                                  <input list="primary-search-field-list" id="primary-search-field-input" placeholder="e.g. sku or name" />
+                                  <datalist id="primary-search-field-list"></datalist>
+                                  <p class="info-text" style="font-size:0.85rem;margin-top:6px">When developer settings are enabled, searches will prioritize this field. You can type a field name or choose from detected fields.</p>
+                                </div>
+                              </form>
+                            </div>
+                            <div class="modal-footer">
+                              <button type="button" class="btn btn-secondary" id="btn-cancel-module">Cancel</button>
+                              <button type="button" class="btn btn-primary" id="btn-save-module">Save Module</button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <!-- Record Modal -->
+                        <div id="record-modal" class="modal">
+                          <div class="modal-content">
+                            <div class="modal-header">
+                              <h3 id="record-modal-title">Add Record</h3>
+                              <span class="close">&times;</span>
+                            </div>
+                            <div class="modal-body">
+                              <form id="record-form"></form>
+                            </div>
+                            <div class="modal-footer">
+                              <button type="button" class="btn btn-secondary" id="btn-cancel-record">Cancel</button>
+                              <button type="button" class="btn btn-primary" id="btn-save-record">Save Record</button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <!-- Sync Manager Modal -->
+                        <div id="sync-modal" class="modal">
+                          <div class="modal-content modal-large">
+                            <div class="modal-header">
+                              <h3>Sync Manager</h3>
+                              <span class="close">&times;</span>
+                            </div>
+                            <div class="modal-body">
+                              <div class="sync-tabs">
+                                <button class="tab-btn active" data-tab="sync-list">Sync Configurations</button>
+                                <button class="tab-btn" data-tab="create-sync">Create New Sync</button>
+                              </div>
+
+                              <div id="sync-list" class="tab-content active">
+                                <div id="sync-configs-list" class="sync-configs-list">
+                                  <p class="empty-state">No sync configurations yet</p>
+                                </div>
+                              </div>
+
+                              <div id="create-sync" class="tab-content">
+                                <form id="sync-form">
+                                  <div class="form-group">
+                                    <label for="sync-name">Sync Name *</label>
+                                    <input type="text" id="sync-name" required />
+                                  </div>
+
+                                  <div class="form-row">
+                                    <div class="form-group">
+                                      <label for="sync-source-module">Source Module *</label>
+                                      <select id="sync-source-module" required></select>
+                                    </div>
+
+                                    <div class="form-group">
+                                      <label for="sync-target-module">Target Module *</label>
+                                      <select id="sync-target-module" required></select>
+                                    </div>
+                                  </div>
+
+                                  <div class="form-group">
+                                    <label><input type="checkbox" id="sync-bidirectional"/> Bidirectional Sync</label>
+                                  </div>
+
+                                  <button type="button" id="btn-detect-mappings" class="btn btn-secondary">Detect Field Mappings</button>
+
+
+      <!-- Add Field Modal -->
+      <div id="add-field-modal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Add Custom Field</h3>
+            <span class="close">&times;</span>
+          </div>
+          <div class="modal-body">
+            <form id="add-field-form">
+              <div class="form-group">
+                <label for="field-name">Field Name *</label>
+                <input
+                  type="text"
+                  id="field-name"
+                  required
+                  placeholder="e.g., customField"
+                />
+              </div>
+
+              <div class="form-group">
+                <label for="field-type">Field Type *</label>
+                <select id="field-type" required>
+                  <option value="string">Text</option>
+                  <option value="number">Number</option>
+                  <option value="boolean">Boolean</option>
+                  <option value="date">Date</option>
+                </select>
+              </div>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              id="btn-cancel-field"
+            >
+              Cancel
+            </button>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="remove-field-select" style="min-width:160px;display:none"></select>
+              <button type="button" class="btn btn-danger" id="btn-remove-field" style="display:none">Remove Field</button>
+              <button type="button" class="btn btn-primary" id="btn-save-field">
+                Add Field
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Web Server Modal -->
+      <div id="server-modal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>🌐 Web Server Access</h3>
+            <span class="close">&times;</span>
+          </div>
+          <div class="modal-body">
+            <div class="server-info">
+              <div class="info-box">
+                <h4>Access from Mobile Device</h4>
+                <p class="info-text">
+                  Connect your mobile device to the same WiFi network and scan
+                  the QR code below or visit the URL.
+                </p>
+              </div>
+
+              <div class="server-url-section">
+                <label>Server URL:</label>
+                <div class="url-container">
+                  <input
+                    type="text"
+                    id="server-url"
+                    readonly
+                    class="server-url-input"
+                  />
+                  <button
+                    id="btn-copy-url"
+                    class="btn btn-sm btn-secondary"
+                    title="Copy URL"
+                  >
+                    📋 Copy
+                  </button>
+                </div>
+              </div>
+
+              <div class="server-ip-select-section" style="margin-top: 10px">
+                <label for="server-ip-select">Bind / Display Address:</label>
+                <select
+                  id="server-ip-select"
+                  style="width: 100%; padding: 6px; margin-top: 6px"
+                >
+                  <option value="">(Auto - choose best local address)</option>
+                </select>
+              </div>
+
+              <div class="qr-code-section">
+                <div class="qr-code-container">
+                  <img id="qr-code-image" src="" alt="QR Code" />
+                </div>
+                <p class="qr-code-hint">Scan with your mobile camera</p>
+              </div>
+
+              <div class="server-details">
+                <div class="detail-item">
+                  <span class="detail-label">IP Address:</span>
+                  <span id="server-ip" class="detail-value">-</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">Port:</span>
+                  <span id="server-port" class="detail-value">-</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">Status:</span>
+                  <span id="server-status" class="detail-value status-active"
+                    >● Running</span
+                  >
+                </div>
+              </div>
+
+              <div
+                class="tls-section"
+                style="
+                  margin-top: 12px;
+                  border-top: 1px solid #eee;
+                  padding-top: 8px;
+                "
+              >
+
+            <!-- Barcode Modal (1D scan with camera & image upload) -->
+            <div id="barcode-modal" class="modal">
+              <div class="modal-content modal-large">
+                <div class="modal-header">
+                  <h3>Barcode Scanner Online</h3>
+                  <span class="close" id="barcode-close">&times;</span>
+                </div>
+                <div class="modal-body scanner-body">
+                  <div class="scanner-info">
+                    <div class="scanner-info-header">Scanner Information</div>
+                    <div class="scanner-info-content">
+                      <div class="scanner-status">
+                        <span class="status-label">Status:</span>
+                        <span id="scanner-status-text" class="status-text">Initializing...</span>
+                      </div>
+                      <div class="scanner-camera">
+                        <span class="status-label">Camera:</span>
+                        <span id="current-camera-text" class="status-text">Detecting...</span>
+                      </div>
+                      <div class="scanner-formats">
+                        <span class="status-label">Supported:</span>
+                        <span class="status-text">QR Codes, EAN-13, EAN-8, UPC-A, UPC-E, Code 128, Code 39</span>
+                      </div>
+                    </div>
+                  </div>
+                  <input style="display:none ;" type="checkbox" id="barcode-result-checker">
+                  <label for="barcode-result-checker"></label>
+                  <div style="display:none;" class="scan-container">
+                    <div id="barcode-camera">
+                      <select id="barcode-select-camera">
+                        <option>Camera not found!</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="qr-scanner-area" id="barcode-qr-scanner-area">
+                    <div class="qr-scanner-div">
+                      <div class="scan-btns">
+                        <button data-tab="camera" id="barcode-camerabtn" class="switchbtn activebtn"
+                          title="Click To Start Camera">Start Camera</button>
+                        <button data-tab="image" id="barcode-imagebtn" class="imagebtn"
+                          title="Click To Upload Barcode Image">Upload Image</button>
+                        <button data-tab="image" title="Paste Image From Clipboard" id="barcode-paste-btn"
+                          class="paste-btn">Paste Image</button>
+                      </div>
+                      <div class="scanner-wrapper">
+                        <div class="qr-scanner camera-scanner" id="barcode-camera-scanner">
+                          <div id="barcode-camera-label" class="scanner-label">Camera is starting...</div>
+                          <div id="barcode-camera-not-found" class="scanner-label">Camera not detected.</br> Please allow camera permissions...</div>
+                          <button title="Click To Start Camera" id="barcode-rescanqrbtn" class="rescanqrbtn">
+                            <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHZpZXdCb3g9IjAgMCAyMCAyMCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEwIDMuNUwxMy41IDEwSDEwVjE2LjVMMi41IDEwSDEwVjMuNVoiIGZpbGw9IndoaXRlIi8+Cjwvc3ZnPg==" alt="rescan-icon-white">
+                            Start Camera
+                          </button>
+                          <div id="barcode-qr-code-previewer"></div>
+                        </div>
+                        <div id="barcode-qrrr" class="qr-scanner image-scanner" title="Click To Upload Barcode Image">
+                          <img id="barcode-uploaded-qr-previewer" />
+                          <div id="barcode-image-label" class="scanner-label">
+                            <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODAiIGhlaWdodD0iODAiIHZpZXdCb3g9IjAgMCA4MCA4MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQwIDMwVjUwTTMwIDQwSDUwIiBzdHJva2U9IiM5OTk5OTkiIHN0cm9rZS13aWR0aD0iNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+CjxjaXJjbGUgY3g9IjQwIiBjeT0iNDAiIHI9IjMwIiBzdHJva2U9IiM5OTk5OTkiIHN0cm9rZS13aWR0aD0iNCIvPgo8L3N2Zz4=" alt="upload_img" height="80" width="80">
+                            <span>Drag & Drop or Browse</span>
+                          </div>
+                          <input type="file" id="barcode-image-uploader" accept="image/*" class="image-uploader" hidden>
+                          <div class="image-not-found">Oops! Barcode not found in image!</div>
+                        </div>
+                      </div>
+                      <span id="barcode-switchbtn" class="switchbtn"></span>
+                      <div class="beep-wrapper">
+                        Beep
+                        <label class="switch">
+                          <input type="checkbox" id="barcode-beep-toggle" checked>
+                          <span class="slider round"></span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="result-area-div" id="barcode-result-area-div">
+                      <div class="result-hinttext">↓ Barcode Result ↓</div>
+                      <div class="result-area-wrapper" id="barcode-result-area-wrapper">
+                      </div>
+                    </div>
+                    <div class="log-section">
+                      <div class="log-header">
+                        <span>Console Logs</span>
+                        <button id="barcode-clear-logs" class="clear-logs-btn" title="Clear Logs">🗑️</button>
+                      </div>
+                      <div class="log-container" id="barcode-log-container">
+                        <div class="log-entry">Scanner initialized...</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+                <h4>TLS / HTTPS</h4>
+                <p class="info-text">
+                  Enable HTTPS for the local server. You can provide existing
+                  PEM files or regenerate a self-signed certificate.
+                </p>
+                <div
+                  style="
+                    display: flex;
+                    gap: 8px;
+                    align-items: center;
+                    margin-top: 6px;
+                  "
+                >
+                  <button id="btn-browse-key" class="btn btn-sm">
+                    Browse Key
+                  </button>
+                  <span
+                    id="tls-key-display"
+                    style="font-size: 0.85rem; color: #444"
+                    >(no key selected)</span
+                  >
+                </div>
+                <div
+                  style="
+                    display: flex;
+                    gap: 8px;
+                    align-items: center;
+                    margin-top: 6px;
+                  "
+                >
+                  <button id="btn-browse-cert" class="btn btn-sm">
+                    Browse Cert
+                  </button>
+                  <span
+                    id="tls-cert-display"
+                    style="font-size: 0.85rem; color: #444"
+                    >(no cert selected)</span
+                  >
+                </div>
+
+                <div
+                  style="
+                    display: flex;
+                    gap: 8px;
+                    margin-top: 10px;
+                    align-items: center;
+                  "
+                >
+                  <button id="btn-apply-tls" class="btn btn-primary btn-sm">
+                    Apply TLS Files
+                  </button>
+                  <button
+                    id="btn-regenerate-tls"
+                    class="btn btn-secondary btn-sm"
+                  >
+                    Regenerate Self-Signed
+                  </button>
+                  <button
+                    id="btn-download-ca"
+                    class="btn btn-link btn-sm"
+                    title="Download CA certificate to trust in browser"
+                  >
+                    Download CA Cert
+                  </button>
+                  <span
+                    id="tls-status"
+                    style="margin-left: 8px; font-size: 0.9rem; color: #666"
+                    ><span class="tls-indicator tls-indicator-red"></span>TLS:
+                    disabled</span
+                  >
+                </div>
+              </div>
+
+              <div class="info-box warning">
+                <strong>Note:</strong> The server will stop when you close the
+                application. Make sure both devices are on the same network.
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-danger" id="btn-stop-server">
+              Stop Server
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              id="btn-close-server-modal"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings Modal (mobile-friendly) -->
+      <div id="settings-modal" class="modal">
+        <div class="modal-content modal-small">
+          <div class="modal-header">
+            <h3>Settings</h3>
+            <span class="close" id="settings-close">&times;</span>
+          </div>
+          <div class="modal-body">
+            <div style="display: flex; flex-direction: column; gap: 10px">
+              <button class="btn btn-primary" id="settings-create-module">
+                Create Module
+              </button>
+              <button class="btn btn-secondary" id="settings-sync-manager">
+                Sync Manager
+              </button>
+              <button class="btn btn-success" id="settings-start-server">
+                Start Server
+              </button>
+            </div>
+            <div class="modal-body" style="border-top: 1px solid #eee">
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <label style="display: flex; align-items: center; gap: 8px">
+                  <input type="checkbox" id="settings-dev-toggle" />
+                  <span>Enable Developer Settings (show Add Field & Sync)</span>
+                </label>
+                <p class="info-text" style="margin-top: 4px">
+                  When enabled, the module dashboard will show developer actions
+                  such as Add Field and Sync Manager.
+                </p>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="settings-close-btn">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mobile Bottom Navigation -->
+      <nav class="mobile-nav" id="mobile-nav">
+        <button class="mobile-nav-btn" id="nav-home">
+          🏠<span>Home</span>
+        </button>
+        <button class="mobile-nav-btn" id="nav-settings">
+          ⚙️<span>Settings</span>
+        </button>
+      </nav>
+    </div>
+
+    <script>
+      (function() {
+        // Ensure global flags exist (defaults: false)
+        if (typeof window.showAdvancedButtons === 'undefined') window.showAdvancedButtons = false;
+        if (typeof window['show advanced buttons'] === 'undefined') window['show advanced buttons'] = window.showAdvancedButtons;
+        if (typeof window.showAdvancedBarcode === 'undefined') window.showAdvancedBarcode = false;
+        if (typeof window['show advanced barcode'] === 'undefined') window['show advanced barcode'] = window.showAdvancedBarcode;
+
+        function applyAdvancedUI() {
+          var buttonsEnabled = (typeof window.showAdvancedButtons !== 'undefined') ? !!window.showAdvancedButtons : !!window['show advanced buttons'];
+          var barcodeEnabled = (typeof window.showAdvancedBarcode !== 'undefined') ? !!window.showAdvancedBarcode : !!window['show advanced barcode'];
+
+          // Header buttons
+          var startBtn = document.getElementById('btn-start-server');
+          var settingsBtn = document.getElementById('btn-settings');
+          var newModuleBtn = document.getElementById('btn-new-module');
+          var syncBtn = document.getElementById('btn-sync-manager');
+          if (startBtn) startBtn.style.display = buttonsEnabled ? '' : 'none';
+          if (settingsBtn) settingsBtn.style.display = buttonsEnabled ? '' : 'none';
+          if (newModuleBtn) newModuleBtn.style.display = buttonsEnabled ? '' : 'none';
+          if (syncBtn) syncBtn.style.display = buttonsEnabled ? '' : 'none';
+
+          // Settings modal start-server button and mobile nav settings
+          var settingsStart = document.getElementById('settings-start-server');
+          var settingsSync = document.getElementById('settings-sync-manager');
+          if (settingsStart) settingsStart.style.display = buttonsEnabled ? '' : 'none';
+          if (settingsSync) settingsSync.style.display = buttonsEnabled ? '' : 'none';
+          var navSettings = document.getElementById('nav-settings');
+          if (navSettings) navSettings.style.display = buttonsEnabled ? '' : 'none';
+
+          // Barcode/QR UI: only toggle the specific scan buttons and small helpers
+          var hideById = [
+            'barcode-camerabtn',
+            'barcode-imagebtn',
+            'barcode-paste-btn',
+            'barcode-rescanqrbtn',
+            'barcode-image-uploader'
+          ];
+          hideById.forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.style.display = barcodeEnabled ? '' : 'none';
+          });
+
+          // Only affect the generated per-field scan buttons and use-scanned action
+          var smallSelectors = ['.scan-again', '#use-scanned', '.scan-btn'];
+          smallSelectors.forEach(function(sel) {
+            var nodes = document.querySelectorAll(sel);
+            nodes.forEach(function(n) { n.style.display = barcodeEnabled ? '' : 'none'; });
+          });
+        }
+
+        // Expose helper and apply now
+        window.applyAdvancedUI = applyAdvancedUI;
+        applyAdvancedUI();
+
+        // Install lightweight watchers: when globals are set, reapply UI immediately.
+        try {
+          function installWatcher(key, altKey) {
+            var internal = (typeof window[key] !== 'undefined') ? window[key] : (typeof window[altKey] !== 'undefined' ? window[altKey] : undefined);
+            try {
+              Object.defineProperty(window, key, {
+                configurable: true,
+                enumerable: true,
+                get: function() { return internal; },
+                set: function(v) { internal = v; try { applyAdvancedUI(); } catch(e){} }
+              });
+            } catch (e) {
+              // ignore if not configurable
+            }
+            if (altKey && altKey !== key) {
+              try {
+                Object.defineProperty(window, altKey, {
+                  configurable: true,
+                  enumerable: true,
+                  get: function() { return internal; },
+                  set: function(v) { internal = v; try { applyAdvancedUI(); } catch(e){} }
+                });
+              } catch (e) {
+                // ignore
+              }
+            }
+          }
+
+          installWatcher('showAdvancedButtons', 'show advanced buttons');
+          installWatcher('showAdvancedBarcode', 'show advanced barcode');
+        } catch (e) {
+          console.warn('applyAdvancedUI: watcher setup failed', e?.message || e);
+        }
+      })();
+    </script>
+    <script src="api-wrapper.js"></script>
+    <script src="libs/jsQR.js"></script>
+    <script src="https://unpkg.com/qr-scanner@1.4.2/qr-scanner.umd.min.js" onload="console.log('QrScanner library loaded successfully')" onerror="console.error('Failed to load QrScanner library'); window.qrScannerLoadError=true;"></script>
+    <script src="https://unpkg.com/@zxing/library@0.18.6/umd/index.min.js" onload="console.log('ZXing library loaded')" onerror="console.error('Failed to load ZXing library')"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

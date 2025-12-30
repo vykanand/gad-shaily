@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Scanner Demo 2 — QR + 2D Barcodes</title>
+    <style>
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background: #f7f7f7;
+      }
+      .btn {
+        display: inline-block;
+        padding: 10px 14px;
+        border-radius: 6px;
+        background: #1976d2;
+        color: #fff;
+        border: none;
+        cursor: pointer;
+      }
+      .btn.secondary {
+        background: #4caf50;
+      }
+      .output {
+        margin-top: 16px;
+        font-size: 16px;
+      }
+      .modal {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 1000;
+      }
+      .modal.active {
+        display: flex;
+      }
+      .modal-content {
+        width: 96%;
+        max-width: 900px;
+        background: #fff;
+        border-radius: 8px;
+        padding: 12px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      }
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      video {
+        width: 100%;
+        height: auto;
+        border-radius: 6px;
+        background: #000;
+      }
+      #canvas {
+        display: none;
+      }
+      .controls {
+        margin-top: 8px;
+        display: flex;
+        gap: 8px;
+      }
+      .notice {
+        margin-top: 8px;
+        color: #333;
+      }
+      .result {
+        margin-top: 10px;
+        padding: 8px;
+        background: #fff;
+        border-radius: 6px;
+        color: #111;
+        border: 1px solid #ddd;
+      }
+      .detected {
+        background: #e8f5e9;
+        color: #085;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Scanner Demo 2 — QR + 2D Barcodes</h2>
+    <p>
+      Tries the browser <code>BarcodeDetector</code> first (fast native), falls
+      back to <code>ZXing</code> if not available, and uses
+      <code>jsQR</code> for manual one-shot QR decode.
+    </p>
+    <button id="openBtn" class="btn">Open Scanner</button>
+    <button id="openManualBtn" class="btn secondary">Open & Detect Once</button>
+
+    <div class="output">
+      <strong>Scanned output:</strong>
+      <div id="scannedText" class="result">(none)</div>
+      <div id="meta" class="notice"></div>
+    </div>
+
+    <div id="modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <strong>Camera Scanner (BarcodeDetector / ZXing / jsQR)</strong>
+          <div>
+            <button id="closeBtn" class="btn">Close</button>
+          </div>
+        </div>
+
+        <div>
+          <video id="video" playsinline></video>
+          <canvas id="canvas"></canvas>
+          <div class="controls">
+            <button id="detectBtn" class="btn">Detect Now (manual)</button>
+            <button id="stopBtn" class="btn">Stop Camera</button>
+          </div>
+          <div id="status" class="notice">Status: idle</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Load libraries from local libs/ to avoid CDN at runtime -->
+    <script src="libs/jsQR.js"></script>
+    <script src="libs/zxing.min.js"></script>
+    <script src="libs/qr-scanner.umd.min.js"></script>
+
+    <script>
+      // Elements
+      const openBtn = document.getElementById("openBtn");
+      const openManualBtn = document.getElementById("openManualBtn");
+      const modal = document.getElementById("modal");
+      const closeBtn = document.getElementById("closeBtn");
+      const video = document.getElementById("video");
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+      const detectBtn = document.getElementById("detectBtn");
+      const stopBtn = document.getElementById("stopBtn");
+      const status = document.getElementById("status");
+      const scannedText = document.getElementById("scannedText");
+      const meta = document.getElementById("meta");
+
+      let stream = null;
+      let rafId = null;
+      let codeReader = null; // ZXing reader when used
+      let useBarcodeDetector = "BarcodeDetector" in window;
+      let barcodeDetector = null;
+
+      function setStatus(t) {
+        status.textContent = "Status: " + t;
+      }
+
+      async function initDetectors() {
+        useBarcodeDetector = "BarcodeDetector" in window;
+        if (useBarcodeDetector) {
+          try {
+            // Ask for common 2D formats; if not supported, BarcodeDetector will throw
+            const formats = [
+              "qr_code",
+              "data_matrix",
+              "ean_13",
+              "code_128",
+              "upc_e",
+              "pdf417",
+              "aztec",
+            ];
+            barcodeDetector = new BarcodeDetector({ formats });
+            meta.textContent = "Using native BarcodeDetector";
+            return;
+          } catch (e) {
+            console.warn("BarcodeDetector init failed", e);
+            useBarcodeDetector = false;
+          }
+        }
+        // If no native, try ZXing multi-format reader (provided by UMD script)
+        try {
+          if (window.ZXing && window.ZXing.BrowserMultiFormatReader) {
+            codeReader = new window.ZXing.BrowserMultiFormatReader();
+            meta.textContent = "Using ZXing fallback";
+            return;
+          }
+        } catch (e) {
+          console.warn("ZXing init failed", e);
+        }
+        meta.textContent = "Using jsQR fallback for manual QR detection only";
+      }
+
+      async function startCamera() {
+        if (stream) return;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment" },
+            audio: false,
+          });
+          video.srcObject = stream;
+          await video.play();
+          setStatus("camera started");
+          // If ZXing codeReader exists we can use decodeFromVideoDevice for continuous detection (it handles decoding internally)
+          if (codeReader) {
+            try {
+              // decodeFromVideoDevice takes deviceId (null -> first), videoElement, callback
+              codeReader.decodeFromVideoDevice(null, video, (result, err) => {
+                if (result) {
+                  handleResult(
+                    result.getText ? result.getText() : result.text || result
+                  );
+                } else if (
+                  err &&
+                  !(err instanceof window.ZXing.NotFoundException)
+                ) {
+                  console.warn("ZXing decode error", err);
+                }
+              });
+              setStatus("ZXing listening (fallback)");
+              return;
+            } catch (e) {
+              console.warn("ZXing decodeFromVideoDevice failed", e);
+              // continue to animation-based loop
+            }
+          }
+          // start animation scanning loop
+          rafId = requestAnimationFrame(scanLoop);
+        } catch (e) {
+          console.error(e);
+          setStatus("camera error: " + (e && e.message ? e.message : e));
+        }
+      }
+
+      function stopCamera() {
+        // stop ZXing if running
+        try {
+          if (codeReader && codeReader.reset) codeReader.reset();
+        } catch (e) {}
+        if (rafId) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        if (stream) {
+          stream.getTracks().forEach((t) => t.stop());
+          stream = null;
+        }
+        try {
+          video.pause();
+          video.srcObject = null;
+        } catch (e) {}
+        setStatus("stopped");
+      }
+
+      function closeModal() {
+        modal.classList.remove("active");
+        stopCamera();
+      }
+      async function openModal() {
+        modal.classList.add("active");
+        setStatus("opening...");
+        await initDetectors();
+        await startCamera();
+      }
+
+      function handleResult(text) {
+        if (!text) return;
+        scannedText.textContent = text;
+        scannedText.classList.add("detected");
+        setStatus("detected");
+        // Stop camera so user can read
+        try {
+          stopCamera();
+        } catch (e) {}
+      }
+
+      function scanLoop() {
+        if (!video || video.readyState !== HTMLMediaElement.HAVE_ENOUGH_DATA) {
+          rafId = requestAnimationFrame(scanLoop);
+          return;
+        }
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // If BarcodeDetector available, prefer it (works directly on ImageBitmap/Canvas)
+        if (useBarcodeDetector && barcodeDetector) {
+          try {
+            // Use detect on a canvas ImageBitmap for better perf
+            canvas.toBlob(async (blob) => {
+              try {
+                const bitmap = await createImageBitmap(blob);
+                const results = await barcodeDetector.detect(bitmap);
+                if (results && results.length) {
+                  handleResult(results[0].rawValue || results[0].raw || "");
+                  bitmap.close();
+                  return;
+                }
+                bitmap.close();
+              } catch (err) {
+                // ignore detection errors
+              }
+              rafId = requestAnimationFrame(scanLoop);
+            });
+            return; // will continue from callback
+          } catch (e) {
+            console.warn(
+              "BarcodeDetector error, falling back to canvas scan",
+              e
+            );
+            // fallthrough
+          }
+        }
+
+        // If no BarcodeDetector and no ZXing continuous decode, try jsQR on canvas as QR fallback
+        if (typeof jsQR !== "undefined") {
+          try {
+            const imageData = ctx.getImageData(
+              0,
+              0,
+              canvas.width,
+              canvas.height
+            );
+            const code = jsQR(
+              imageData.data,
+              imageData.width,
+              imageData.height
+            );
+            if (code) {
+              handleResult(code.data);
+              return;
+            }
+          } catch (e) {
+            console.warn("jsQR error", e);
+          }
+        }
+
+        rafId = requestAnimationFrame(scanLoop);
+      }
+
+      async function detectNowOnce() {
+        if (!stream) {
+          await initDetectors();
+          await startCamera();
+          // small delay for video feed to initialize
+          await new Promise((r) => setTimeout(r, 300));
+        }
+
+        if (useBarcodeDetector && barcodeDetector) {
+          try {
+            // use an ImageBitmap for detection
+            const blob = await new Promise((r) => canvas.toBlob(r));
+            const bitmap = await createImageBitmap(blob);
+            const results = await barcodeDetector.detect(bitmap);
+            if (results && results.length) {
+              handleResult(results[0].rawValue || results[0].raw || "");
+              bitmap.close();
+              return;
+            }
+            bitmap.close();
+          } catch (e) {
+            console.warn("Manual BarcodeDetector detect failed", e);
+          }
+        }
+
+        // try ZXing single-shot decode from canvas (if available)
+        if (codeReader && codeReader.decodeFromCanvas) {
+          try {
+            codeReader
+              .decodeFromCanvas(canvas)
+              .then((result) => {
+                if (result)
+                  handleResult(
+                    result.getText ? result.getText() : result.text || result
+                  );
+              })
+              .catch((e) => {
+                /* ignore not found */
+              });
+            return;
+          } catch (e) {
+            // some builds don't expose decodeFromCanvas; fallthrough
+          }
+        }
+
+        // final fallback: jsQR for QR only
+        try {
+          if (video.readyState === HTMLMediaElement.HAVE_ENOUGH_DATA) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = ctx.getImageData(
+              0,
+              0,
+              canvas.width,
+              canvas.height
+            );
+            if (typeof jsQR !== "undefined") {
+              const code = jsQR(
+                imageData.data,
+                imageData.width,
+                imageData.height
+              );
+              if (code) {
+                handleResult(code.data);
+                return;
+              }
+            }
+          }
+          setStatus("no code detected");
+        } catch (e) {
+          console.warn("Manual detect error", e);
+        }
+      }
+
+      // Wire UI
+      openBtn.addEventListener("click", () => {
+        scannedText.textContent = "(none)";
+        scannedText.classList.remove("detected");
+        openModal();
+      });
+      openManualBtn.addEventListener("click", async () => {
+        scannedText.textContent = "(none)";
+        scannedText.classList.remove("detected");
+        await openModal();
+        await new Promise((r) => setTimeout(r, 350));
+        detectNowOnce();
+      });
+      closeBtn.addEventListener("click", () => closeModal());
+      stopBtn.addEventListener("click", () => {
+        stopCamera();
+        setStatus("stopped by user");
+      });
+      detectBtn.addEventListener("click", detectNowOnce);
+
+      // Cleanup
+      window.addEventListener("beforeunload", () => stopCamera());
+    </script>
+  </body>
+</html>
