@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>1D & QR Barcode Scanner</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f7f7f7;
+        margin: 0;
+        padding: 20px;
+        text-align: center;
+      }
+      #video {
+        width: 100%;
+        max-width: 450px;
+        border-radius: 10px;
+        background: #000;
+      }
+      #output {
+        margin-top: 20px;
+        font-size: 20px;
+        font-weight: bold;
+        color: #333;
+        padding: 10px;
+        background: white;
+        display: inline-block;
+        border-radius: 8px;
+      }
+      button {
+        padding: 12px 25px;
+        font-size: 18px;
+        margin-top: 15px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>1D & QR Barcode Scanner</h1>
+    <video id="video" autoplay></video>
+
+    <div id="output">Waiting for scan...</div>
+
+    <button onclick="startScanner()">Start Camera</button>
+
+    <script type="module">
+      import { BrowserMultiFormatReader } from "https://cdn.jsdelivr.net/npm/@zxing/library@latest/esm/index.js";
+
+      let codeReader = new BrowserMultiFormatReader();
+      let video = document.getElementById("video");
+      let output = document.getElementById("output");
+
+      async function startScanner() {
+        output.innerText = "Starting camera...";
+
+        try {
+          const devices =
+            await BrowserMultiFormatReader.listVideoInputDevices();
+
+          if (devices.length === 0) {
+            output.innerText = "No camera found!";
+            return;
+          }
+
+          // Use back camera if available
+          let selectedDeviceId =
+            devices.length > 1
+              ? devices[devices.length - 1].deviceId
+              : devices[0].deviceId;
+
+          output.innerText = "Scanning...";
+
+          codeReader.decodeFromVideoDevice(
+            selectedDeviceId,
+            video,
+            (result) => {
+              if (result) {
+                output.innerText = "Detected: " + result.text;
+              }
+            }
+          );
+        } catch (err) {
+          output.innerText = "Error: " + err;
+          console.error(err);
+        }
+      }
+    </script>
+  </body>
+</html>

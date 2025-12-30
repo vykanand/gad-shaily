@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Scanner Demo 3 — Consolidated QR + 1D</title>
+    <style>
+      body {
+        font-family: Inter, Arial, Helvetica, sans-serif;
+        margin: 18px;
+        background: #f6f7fb;
+        color: #111;
+      }
+      .btn {
+        padding: 8px 12px;
+        border-radius: 6px;
+        background: #1e88e5;
+        color: #fff;
+        border: none;
+        cursor: pointer;
+      }
+      .btn.ghost {
+        background: #eee;
+        color: #111;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .box {
+        margin-top: 16px;
+        padding: 12px;
+        background: #fff;
+        border-radius: 8px;
+        border: 1px solid #e6e9ef;
+      }
+      video {
+        width: 100%;
+        height: auto;
+        background: #000;
+        border-radius: 6px;
+      }
+      .modal {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.55);
+        z-index: 9999;
+      }
+      .modal.active {
+        display: flex;
+      }
+      .modal-content {
+        width: 96%;
+        max-width: 820px;
+        background: #fff;
+        border-radius: 8px;
+        padding: 12px;
+      }
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .controls {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .log {
+        height: 120px;
+        overflow: auto;
+        background: #0b1220;
+        color: #d6f8ff;
+        border-radius: 6px;
+        padding: 8px;
+        margin-top: 8px;
+        font-family: monospace;
+        font-size: 12px;
+      }
+      .result {
+        margin-top: 8px;
+        padding: 8px;
+        background: #f3f7ff;
+        border-radius: 6px;
+      }
+      label {
+        font-size: 13px;
+      }
+      select,
+      input[type="text"] {
+        padding: 6px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Scanner Demo 3 — Consolidated QR + Barcode</h2>
+    <div class="row">
+      <button id="open-qr" class="btn">Open QR / 2D Scanner</button>
+      <button id="open-1d" class="btn">Open 1D Barcode Scanner</button>
+      <button id="open-both" class="btn ghost">Open Both (for dev)</button>
+    </div>
+
+    <div class="box">
+      <label for="scannedOutput"><strong>Scanned Output</strong></label>
+      <div
+        style="display: flex; gap: 8px; margin-top: 8px; align-items: center"
+      >
+        <input
+          id="scannedOutput"
+          type="text"
+          placeholder="Scanned value will appear here"
+          style="flex: 1"
+        />
+        <button id="clearOutput" class="btn ghost">Clear</button>
+      </div>
+      <p style="margin-top: 8px; color: #666; font-size: 13px">
+        Open either scanner to capture values and click <em>Use Scanned</em> to
+        transfer into the textbox.
+      </p>
+    </div>
+
+    <!-- QR/2D Modal -->
+    <div id="modal-qr" class="modal" aria-hidden="true">
+      <div class="modal-content">
+        <div class="modal-header">
+          <strong>QR / 2D Scanner</strong>
+          <div>
+            <button id="close-qr" class="btn ghost">Close</button>
+          </div>
+        </div>
+        <div style="margin-top: 8px">
+          <div style="display: flex; gap: 8px; align-items: center">
+            <label>Camera:</label>
+            <select id="qr-camera-select"></select>
+            <button id="qr-start" class="btn">Start Camera</button>
+            <button id="qr-stop" class="btn ghost">Stop</button>
+            <button id="qr-scan-once" class="btn ghost">Detect Once</button>
+          </div>
+          <div style="margin-top: 8px">
+            <video id="qr-video" playsinline muted></video>
+            <canvas id="qr-canvas" style="display: none"></canvas>
+            <div id="qr-result" class="result">No result</div>
+            <div
+              style="
+                display: flex;
+                gap: 8px;
+                margin-top: 8px;
+                align-items: center;
+              "
+            >
+              <button id="qr-use" class="btn" disabled>Use Scanned</button>
+              <button id="qr-copy" class="btn ghost" disabled>Copy</button>
+              <label style="margin-left: auto"
+                ><input id="qr-beep" type="checkbox" checked /> Beep on
+                detection</label
+              >
+            </div>
+            <div id="qr-log" class="log"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1D Modal -->
+    <div id="modal-1d" class="modal" aria-hidden="true">
+      <div class="modal-content">
+        <div class="modal-header">
+          <strong>1D Barcode Scanner (EAN / Code128 / UPC)</strong>
+          <div>
+            <button id="close-1d" class="btn ghost">Close</button>
+          </div>
+        </div>
+        <div style="margin-top: 8px">
+          <div style="display: flex; gap: 8px; align-items: center">
+            <label>Camera:</label>
+            <select id="b1d-camera-select"></select>
+            <button id="b1d-start" class="btn">Start Camera</button>
+            <button id="b1d-stop" class="btn ghost">Stop</button>
+            <button id="b1d-scan-once" class="btn ghost">Detect Once</button>
+          </div>
+          <div style="margin-top: 8px">
+            <video id="b1d-video" playsinline muted></video>
+            <canvas id="b1d-canvas" style="display: none"></canvas>
+            <div id="b1d-result" class="result">No result</div>
+            <div
+              style="
+                display: flex;
+                gap: 8px;
+                margin-top: 8px;
+                align-items: center;
+              "
+            >
+              <button id="b1d-use" class="btn" disabled>Use Scanned</button>
+              <button id="b1d-copy" class="btn ghost" disabled>Copy</button>
+              <label style="margin-left: auto"
+                ><input id="b1d-beep" type="checkbox" checked /> Beep on
+                detection</label
+              >
+            </div>
+            <div id="b1d-log" class="log"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- local libs -->
+    <script src="libs/jsQR.js"></script>
+    <script src="libs/zxing.min.js"></script>
+    <script src="libs/qr-scanner.umd.min.js"></script>
+
+    <script>
+      (function () {
+        // Utilities
+        function el(id) {
+          return document.getElementById(id);
+        }
+        function appendLog(node, msg) {
+          const d = document.createElement("div");
+          d.textContent = new Date().toLocaleTimeString() + " - " + msg;
+          node.appendChild(d);
+          node.scrollTop = node.scrollHeight;
+        }
+        function playBeep() {
+          try {
+            const b = new Audio();
+            b.src =
+              "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
+            b.play().catch(() => {});
+          } catch (e) {}
+        }
+
+        // camera helpers
+        async function listCameras() {
+          try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            return devices.filter((d) => d.kind === "videoinput");
+          } catch (e) {
+            return [];
+          }
+        }
+        function chooseBackCameraId(devices) {
+          // prefer labels containing back/rear/environment else last device
+          const back = devices.find((d) =>
+            /back|rear|environment/i.test(d.label)
+          );
+          if (back) return back.deviceId;
+          if (devices.length) return devices[devices.length - 1].deviceId;
+          return null;
+        }
+
+        // ZXing helper wrapper
+        function hasZXing() {
+          return window.ZXing && window.ZXing.BrowserMultiFormatReader;
+        }
+
+        // Shared scanner class (minimal) for continuous detection using ZXing->BarcodeDetector->jsQR
+        function createScanner(opts) {
+          const { video, canvas, resultEl, logEl, preferredDeviceId, formats } =
+            opts;
+          const ctx = canvas.getContext("2d");
+          let stream = null,
+            raf = null,
+            zxingReader = null,
+            barcodeDetector = null,
+            active = false;
+          let lastResult = null;
+
+          async function start(deviceId) {
+            if (active) return;
+            active = true;
+            appendLog(logEl, "Starting scanner...");
+            try {
+              const constraints = {
+                video: {
+                  deviceId: deviceId ? { exact: deviceId } : {},
+                  facingMode: "environment",
+                },
+                audio: false,
+              };
+              stream = await navigator.mediaDevices.getUserMedia(constraints);
+              video.srcObject = stream;
+              await video.play();
+              appendLog(logEl, "Camera started");
+
+              // try BarcodeDetector native
+              if ("BarcodeDetector" in window) {
+                try {
+                  const detFormats =
+                    formats && formats.length
+                      ? formats
+                      : [
+                          "qr_code",
+                          "ean_13",
+                          "ean_8",
+                          "code_128",
+                          "code_39",
+                          "upc_a",
+                          "upc_e",
+                        ];
+                  barcodeDetector = new BarcodeDetector({
+                    formats: detFormats,
+                  });
+                  appendLog(logEl, "Using native BarcodeDetector");
+                } catch (e) {
+                  appendLog(logEl, "BarcodeDetector init failed");
+                  barcodeDetector = null;
+                }
+              }
+
+              // try ZXing
+              if (hasZXing()) {
+                try {
+                  zxingReader = new window.ZXing.BrowserMultiFormatReader();
+                  appendLog(logEl, "ZXing available");
+                  // continuous decode using deviceId
+                  try {
+                    zxingReader.decodeFromVideoDevice(
+                      deviceId || null,
+                      video,
+                      (result, err) => {
+                        if (result) {
+                          const text = result.getText
+                            ? result.getText()
+                            : result.text || result;
+                          handleResult(text, "ZXing");
+                        } else if (err) {
+                          // non-fatal
+                        }
+                      }
+                    );
+                    appendLog(logEl, "ZXing listening (continuous)");
+                    return; // ZXing handles continuous decoding
+                  } catch (e) {
+                    appendLog(logEl, "ZXing continuous start failed");
+                  }
+                } catch (e) {
+                  appendLog(logEl, "ZXing init failed");
+                }
+              }
+
+              // fallback to animation frame scanning loop (using BarcodeDetector or jsQR)
+              async function scanFrame() {
+                if (!video.videoWidth || !video.videoHeight) {
+                  raf = requestAnimationFrame(scanFrame);
+                  return;
+                }
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                // try native detector first
+                if (barcodeDetector) {
+                  try {
+                    const img = await createImageBitmap(canvas);
+                    const results = await barcodeDetector.detect(img);
+                    img.close();
+                    if (results && results.length) {
+                      handleResult(
+                        results[0].rawValue || results[0].raw || "",
+                        "BarcodeDetector"
+                      );
+                      return;
+                    }
+                  } catch (e) {
+                    /* ignore */
+                  }
+                }
+                // try jsQR for QR codes
+                if (typeof jsQR !== "undefined") {
+                  try {
+                    const id = ctx.getImageData(
+                      0,
+                      0,
+                      canvas.width,
+                      canvas.height
+                    );
+                    const code = jsQR(id.data, id.width, id.height);
+                    if (code) {
+                      handleResult(code.data, "jsQR");
+                      return;
+                    }
+                  } catch (e) {}
+                }
+                raf = requestAnimationFrame(scanFrame);
+              }
+              raf = requestAnimationFrame(scanFrame);
+            } catch (e) {
+              appendLog(logEl, "Camera start error: " + (e.message || e));
+              active = false;
+              throw e;
+            }
+          }
+
+          async function detectOnce() {
+            if (!video || !video.videoWidth) {
+              appendLog(logEl, "No video frame available for detectOnce");
+              return null;
+            }
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            // try BarcodeDetector catch
+            if ("BarcodeDetector" in window) {
+              try {
+                const detector = new BarcodeDetector({ formats: formats });
+                const img = await createImageBitmap(canvas);
+                const results = await detector.detect(img);
+                img.close();
+                if (results && results.length)
+                  return {
+                    text: results[0].rawValue || results[0].raw || "",
+                    type: "BarcodeDetector",
+                  };
+              } catch (e) {}
+            }
+            // try zx single-shot via decodeFromCanvas if available
+            if (hasZXing()) {
+              try {
+                const reader = new window.ZXing.BrowserMultiFormatReader();
+                const res = await reader.decodeFromCanvas(canvas);
+                if (res) {
+                  return {
+                    text: res.getText ? res.getText() : res.text || "",
+                    type: "ZXing",
+                  };
+                }
+              } catch (e) {}
+            }
+            if (typeof jsQR !== "undefined") {
+              try {
+                const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(id.data, id.width, id.height);
+                if (code) return { text: code.data, type: "jsQR" };
+              } catch (e) {}
+            }
+            return null;
+          }
+
+          function handleResult(text, src) {
+            if (!text) return;
+            if (lastResult === text) return; // ignore duplicates
+            lastResult = text;
+            appendLog(logEl, "DETECTED (" + src + "): " + text);
+            resultEl.textContent = text + " (" + src + ")";
+            active = false;
+            // stop camera and zxing
+            stop();
+            return text;
+          }
+
+          function stop() {
+            try {
+              if (zxingReader && zxingReader.reset) zxingReader.reset();
+            } catch (e) {}
+            if (raf) {
+              cancelAnimationFrame(raf);
+              raf = null;
+            }
+            if (stream) {
+              stream.getTracks().forEach((t) => t.stop());
+              stream = null;
+            }
+            try {
+              if (video) {
+                video.pause();
+                video.srcObject = null;
+              }
+            } catch (e) {}
+            appendLog(logEl, "Stopped");
+            active = false;
+          }
+
+          async function destroy() {
+            stop();
+          }
+
+          return {
+            start,
+            stop,
+            detectOnce,
+            destroy,
+            getLast: () => lastResult,
+          };
+        }
+
+        // Build UI wiring for each modal
+        async function wireModal(prefix, formats) {
+          // prefix is 'qr' or 'b1d' — element ids use that prefix
+          const modal = el("modal-" + prefix);
+          const openBtn =
+            prefix === "qr"
+              ? el("open-qr")
+              : prefix === "b1d"
+              ? el("open-1d")
+              : null;
+          const closeBtn = el("close-" + prefix);
+          const startBtn = el(prefix === "qr" ? "qr-start" : "b1d-start");
+          const stopBtn = el(prefix === "qr" ? "qr-stop" : "b1d-stop");
+          const scanOnceBtn = el(
+            prefix === "qr" ? "qr-scan-once" : "b1d-scan-once"
+          );
+          const cameraSelect = el(
+            prefix === "qr" ? "qr-camera-select" : "b1d-camera-select"
+          );
+          const video = el(prefix === "qr" ? "qr-video" : "b1d-video");
+          const canvas = el(prefix === "qr" ? "qr-canvas" : "b1d-canvas");
+          const resultEl = el(prefix === "qr" ? "qr-result" : "b1d-result");
+          const logEl = el(prefix === "qr" ? "qr-log" : "b1d-log");
+          const useBtn = el(prefix === "qr" ? "qr-use" : "b1d-use");
+          const copyBtn = el(prefix === "qr" ? "qr-copy" : "b1d-copy");
+          const beepToggle = el(prefix === "qr" ? "qr-beep" : "b1d-beep");
+
+          let scanner = null;
+          let currentDeviceId = null;
+
+          async function populateCameras() {
+            const devices = await listCameras();
+            cameraSelect.innerHTML = "";
+            devices.forEach((d) => {
+              const opt = document.createElement("option");
+              opt.value = d.deviceId;
+              opt.textContent =
+                d.label || "Camera " + (cameraSelect.length + 1);
+              cameraSelect.appendChild(opt);
+            });
+            const pref = chooseBackCameraId(devices);
+            if (pref) {
+              currentDeviceId = pref;
+              cameraSelect.value = pref;
+            }
+            appendLog(logEl, "Cameras populated: " + devices.length);
+          }
+
+          async function open() {
+            modal.classList.add("active");
+            modal.setAttribute("aria-hidden", "false");
+            appendLog(logEl, "Modal opened");
+            await populateCameras();
+          }
+          function close() {
+            modal.classList.remove("active");
+            modal.setAttribute("aria-hidden", "true");
+            appendLog(logEl, "Modal closed");
+            if (scanner) {
+              scanner.stop();
+              scanner = null;
+            }
+          }
+
+          if (openBtn) openBtn.addEventListener("click", () => open());
+          closeBtn.addEventListener("click", () => close());
+          cameraSelect.addEventListener("change", () => {
+            currentDeviceId = cameraSelect.value;
+          });
+
+          startBtn.addEventListener("click", async () => {
+            if (scanner) {
+              appendLog(logEl, "Scanner already running");
+              return;
+            }
+            const preferred = currentDeviceId;
+            scanner = createScanner({
+              video,
+              canvas,
+              resultEl,
+              logEl,
+              preferredDeviceId: preferred,
+              formats,
+            });
+            try {
+              await scanner.start(preferred);
+            } catch (e) {
+              appendLog(logEl, "Start error: " + (e.message || e));
+              scanner = null;
+            }
+          });
+          stopBtn.addEventListener("click", () => {
+            if (scanner) {
+              scanner.stop();
+              scanner = null;
+            }
+          });
+
+          scanOnceBtn.addEventListener("click", async () => {
+            if (!scanner) {
+              // create temp scanner using video stream
+              scanner = createScanner({
+                video,
+                canvas,
+                resultEl,
+                logEl,
+                preferredDeviceId: currentDeviceId,
+                formats,
+              });
+              try {
+                await scanner.start(currentDeviceId);
+              } catch (e) {
+                appendLog(
+                  logEl,
+                  "Start error for one-shot: " + (e.message || e)
+                );
+                scanner = null;
+                return;
+              }
+            }
+            const res = await scanner.detectOnce();
+            if (res) {
+              resultEl.textContent = res.text + " (" + res.type + ")";
+              appendLog(logEl, "One-shot detected: " + res.text);
+              if (beepToggle.checked) playBeep();
+              useBtn.disabled = false;
+              copyBtn.disabled = false;
+            } else appendLog(logEl, "One-shot: no code");
+          });
+
+          // listen for scanner detection to enable Use & Copy — we poll for last result periodically
+          const poll = setInterval(() => {
+            if (!scanner) return;
+            const v = scanner.getLast && scanner.getLast();
+            if (v) {
+              useBtn.disabled = false;
+              copyBtn.disabled = false;
+              if (
+                (prefix === "qr" && el("qr-beep").checked) ||
+                (prefix === "b1d" && el("b1d-beep").checked)
+              )
+                playBeep();
+            }
+          }, 400);
+
+          useBtn.addEventListener("click", () => {
+            const val = resultEl.textContent || "";
+            if (!val) return;
+            el("scannedOutput").value = val.replace(/\s*\([^)]*\)\s*$/, ""); // strip trailing (TYPE)
+            appendLog(logEl, "Transferred to main textbox");
+            close();
+          });
+          copyBtn.addEventListener("click", () => {
+            const val = resultEl.textContent || "";
+            navigator.clipboard &&
+              navigator.clipboard
+                .writeText(val.replace(/\s*\([^)]*\)\s*$/, ""))
+                .then(
+                  () => appendLog(logEl, "Copied to clipboard"),
+                  () => appendLog(logEl, "Clipboard copy failed")
+                );
+          });
+
+          // developer open both
+          el("open-both").addEventListener("click", () => {
+            open();
+            el("modal-1d").classList.add("active");
+          });
+
+          // cleanup on page close
+          window.addEventListener("beforeunload", () => {
+            if (scanner) scanner.destroy && scanner.destroy();
+            clearInterval(poll);
+          });
+
+          // initial camera populate
+          populateCameras().catch(() => {});
+        }
+
+        // wire both modals
+        wireModal("qr", ["qr_code", "data_matrix"]);
+        wireModal("b1d", [
+          "ean_13",
+          "ean_8",
+          "upc_a",
+          "upc_e",
+          "code_128",
+          "code_39",
+        ]);
+
+        // small UI helpers
+        el("clearOutput").addEventListener(
+          "click",
+          () => (el("scannedOutput").value = "")
+        );
+
+        // expose simple log to console as well
+        console.log("Scanner demo 3 loaded");
+      })();
+    </script>
+  </body>
+</html>

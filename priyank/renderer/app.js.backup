@@ -1,0 +1,2925 @@
+
+// State Management
+let currentModule = null;
+let currentRecord = null;
+let modules = [];
+let fetchedMetadata = null;
+let serverRunning = false;
+let currentPage = 0;
+let pageSize = 50;
+let totalRecords = 0;
+
+// jsQR is provided as a global UMD script loaded in index.html
+
+// Update TLS status indicator
+function updateTLSStatus(enabled, text = null) {
+  const tlsStatusEl = document.getElementById('tls-status');
+  if (!tlsStatusEl) return;
+  const indicator = tlsStatusEl.querySelector('.tls-indicator');
+  if (indicator) {
+    indicator.className = `tls-indicator ${enabled ? 'tls-indicator-green' : 'tls-indicator-red'}`;
+  }
+  tlsStatusEl.innerHTML = `<span class="tls-indicator ${enabled ? 'tls-indicator-green' : 'tls-indicator-red'}"></span>${text || (enabled ? 'TLS: enabled' : 'TLS: disabled')}`;
+}
+
+// Initialize App
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadModules();
+  initializeEventListeners();
+  relocateModalsToBody();
+  // Close active modal with Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' || e.key === 'Esc') {
+      const active = document.querySelector('.modal.active');
+      if (active) closeModal(active);
+    }
+  });
+  await checkServerStatus();
+  updateUIForEnvironment();
+  // Initialize developer settings from localStorage
+  initDevSettings();
+});
+
+// Move modal elements to document.body to avoid being clipped by transformed/overflowed ancestors
+function relocateModalsToBody() {
+  try {
+    const modals = Array.from(document.querySelectorAll('.modal'));
+    modals.forEach(m => {
+      if (m.parentElement !== document.body) {
+        console.info('relocateModalsToBody: moving modal', m.id);
+        document.body.appendChild(m);
+      }
+    });
+  } catch (e) {
+    console.warn('relocateModalsToBody: failed', e);
+  }
+}
+
+// Unified modal helpers: open/close with safe guards and cleanup
+function openModal(modal) {
+  if (!modal) return;
+  try {
+    // Ensure modal is a direct child of body
+    if (modal.parentElement !== document.body) document.body.appendChild(modal);
+    modal.classList.add('active');
+    modal.setAttribute('aria-hidden', 'false');
+    // Remove any temporary inline hiding styles
+    modal.style.removeProperty('display');
+    modal.style.removeProperty('z-index');
+  } catch (e) {
+    console.warn('openModal failed', e);
+  }
+}
+
+function closeModal(modal) {
+  if (!modal) return;
+  try {
+    modal.classList.remove('active');
+    modal.setAttribute('aria-hidden', 'true');
+    // Remove diagnostics fallback inline styles if present
+    modal.style.removeProperty('display');
+    modal.style.removeProperty('z-index');
+  } catch (e) {
+    console.warn('closeModal failed', e);
+  }
+}
+
+// Check if running in Electron or Web and adapt UI
+function updateUIForEnvironment() {
+  try {
+    const isElectron = API && API.isElectron && API.isElectron();
+    const serverBtn = document.getElementById('btn-start-server');
+    if (!isElectron && serverBtn) serverBtn.style.display = 'none';
+  } catch (e) {
+    // ignore in web context
+  }
+// Scanner functions (ensure global access)
+window.__scannerStream = null;
+window.__barcodeDetector = null;
+window.__scannerRunning = false;
+window.__scannerAnimation = null;
+window.__lastScanValue = '';
+window.__scannerTargetField = null;
+
+// Debug logging helper
+window.scannerLog = function(message, level = 'info') {
+  const timestamp = new Date().toLocaleTimeString();
+  const logMessage = `[${timestamp}] ${message}`;
+  
+  // Console log
+  if (level === 'error') {
+    console.error(logMessage);
+  } else if (level === 'warn') {
+    console.warn(logMessage);
+  } else {
+    console.log(logMessage);
+  }
+  
+  // Screen log
+  const debugDiv = document.getElementById('scanner-debug');
+  const debugContent = document.getElementById('scanner-debug-content');
+  if (debugDiv && debugContent) {
+    debugDiv.style.display = 'block';
+    const logEntry = document.createElement('div');
+    logEntry.style.margin = '2px 0';
+    logEntry.style.color = level === 'error' ? '#d32f2f' : level === 'warn' ? '#f57c00' : '#1976d2';
+    logEntry.textContent = logMessage;
+    debugContent.appendChild(logEntry);
+    
+    // Auto-scroll to bottom
+    debugDiv.scrollTop = debugDiv.scrollHeight;
+    
+    // Limit log entries to prevent memory issues
+    while (debugContent.children.length > 50) {
+      debugContent.removeChild(debugContent.firstChild);
+    }
+  }
+};
+
+// jsQR scanner variables
+let isResultHidden = true;
+const scanAgainBtn = document.querySelector(".scan-again");
+const scanResult = document.getElementById("scan-result");
+const qrDataType = document.getElementById("qr-data-type");
+const scan = document.getElementById("scan");
+const video = document.getElementById("vid");
+const accessMessage = document.getElementById("accessMessage");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+let mediaDevices = navigator.mediaDevices;
+let videoConstraints = {
+  video: {
+    facingMode: isMobileDevice() ? "environment" : "user"
+  },
+  audio: false
+};
+let videoStream = null;
+let scanTimeout = null;
+let frameCounter = 0; // used to throttle verbose frame logs
+
+function initScanner() {
+  if (scanAgainBtn) {
+    scanAgainBtn.addEventListener("click", () => {
+      scanResult.classList.add("d-none");
+      scan.classList.remove("height-30", "height-60");
+      isResultHidden = true;
+      openCameraAndScan();
+    });
+  }
+  document.getElementById("openCameraBtn").addEventListener("click", function() {
+    openCameraAndScan();
+  });
+  document.getElementById("accessMessage-text").addEventListener("click", function() {
+    openCameraAndScan();
+  });
+  document.getElementById("retryCameraBtn").addEventListener("click", function() {
+    openCameraAndScan();
+  });
+  const manualBtn = document.getElementById('manualDetectBtn');
+  if (manualBtn) {
+    manualBtn.addEventListener('click', function() {
+      scannerLog('Manual detect pressed', 'info');
+      detectNow();
+    });
+  }
+
+  // If page does not contain a manual detect button, inject a small one
+  if (!manualBtn) {
+    try {
+      const injected = document.createElement('button');
+      injected.id = 'manualDetectBtn';
+      injected.type = 'button';
+      injected.className = 'manual-detect-btn';
+      injected.textContent = 'Detect Now';
+      injected.style.position = 'absolute';
+      injected.style.right = '12px';
+      injected.style.bottom = '12px';
+      injected.style.zIndex = '1200';
+      injected.style.padding = '8px 12px';
+      injected.style.background = '#ffffffcc';
+      injected.style.border = '1px solid #ddd';
+      injected.style.borderRadius = '6px';
+      injected.style.cursor = 'pointer';
+      injected.addEventListener('click', function() {
+        scannerLog('Injected manual detect pressed', 'info');
+        // If camera not streaming, open it first and then run a single-frame detect
+        if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
+          detectNow();
+        } else {
+          // open camera and after metadata load do a single-frame detect
+          openCameraAndScan();
+          const once = function() {
+            detectNow();
+            video.removeEventListener('loadedmetadata', once);
+          };
+          video.addEventListener('loadedmetadata', once, { once: true });
+        }
+      });
+      // append to scan container if present, otherwise body
+      const scanContainer = document.getElementById('scan');
+      (scanContainer || document.body).appendChild(injected);
+    } catch (e) {
+      scannerLog('Failed to inject manualDetectBtn: ' + (e?.message || e), 'warn');
+    }
+  }
+  document.getElementById("use-scanned").addEventListener("click", function() {
+    const code = document.getElementById("url-result").innerText;
+    if (window.__scannerTargetField) {
+      const target = document.getElementById(window.__scannerTargetField);
+      if (target) {
+        target.value = code;
+      }
+    }
+    closeScannerModal();
+  });
+}
+
+function openCameraAndScan() {
+  // Prevent starting another stream if one already exists
+  if (videoStream) {
+    scannerLog('openCameraAndScan called but stream already active', 'debug');
+    return;
+  }
+  if (scanTimeout) clearTimeout(scanTimeout);
+  scanTimeout = setTimeout(() => {
+    if (isResultHidden) {
+      scannerLog('Scan timeout', 'warn');
+    }
+  }, 20000);
+  mediaDevices
+    .getUserMedia(videoConstraints)
+    .then((stream) => {
+      video.srcObject = stream;
+      videoStream = stream;
+      video.addEventListener("loadedmetadata", () => {
+        video.play();
+        accessMessage.classList.add("d-none");
+        // show debug panel when camera is active
+        const debugDiv = document.getElementById('scanner-debug');
+        if (debugDiv) { debugDiv.classList.remove('d-none'); debugDiv.classList.add('show'); }
+        scannerLog('Camera stream started', 'info');
+        requestAnimationFrame(scanQRCode);
+      }, { once: true });
+    })
+    .catch((error) => {
+      accessMessage.classList.remove("d-none");
+      video.srcObject = null;
+      scannerLog('Error accessing camera: ' + (error?.message || error), 'error');
+      const cameraError = document.getElementById("cameraError");
+      cameraError.classList.remove("d-none");
+    });
+}
+
+// Run a single-frame detection immediately (manual or programmatic)
+// Ensure `jsQR` is available in renderer by dynamically loading vendor script(s) when needed.
+window.__jsQRLoaderPromise = null;
+function ensureJsQRAvailable(timeout = 4000) {
+  if (typeof jsQR !== 'undefined') return Promise.resolve();
+  if (window.__jsQRLoaderPromise) return window.__jsQRLoaderPromise;
+
+  window.__jsQRLoaderPromise = new Promise((resolve, reject) => {
+    const candidates = [];
+    try {
+      if (location && location.protocol && location.protocol.startsWith('http')) {
+        // Prefer local copies bundled with the app first (works offline and in dev).
+        candidates.push(location.origin + '/libs/jsQR.js');
+        candidates.push(location.origin + '/libs/jsQR.min.js');
+        // root-relative and relative fallbacks
+        candidates.push('/libs/jsQR.js');
+        candidates.push('libs/jsQR.js');
+        candidates.push('./libs/jsQR.js');
+        // Finally try the hosted CDN / external copy as a fallback
+        candidates.push('https://www.the-qrcode-generator.com/wp-content/themes/tqrcg/js/bundle/jsQR.min.js');
+      } else {
+        // file:// (Electron) or unknown: try relative to index.html and packaged libs first
+        candidates.push('libs/jsQR.js');
+        candidates.push('./libs/jsQR.js');
+        candidates.push('/libs/jsQR.js');
+        // try origin-based paths if available
+        try { candidates.push(location.origin + '/libs/jsQR.js'); } catch(e) {}
+        // external fallback last
+        candidates.push('https://www.the-qrcode-generator.com/wp-content/themes/tqrcg/js/bundle/jsQR.min.js');
+      }
+    } catch (e) {
+      candidates.push('libs/jsQR.js');
+    }
+
+    // Determine which candidates are considered 'local' (non-remote)
+    const localCandidates = candidates.filter(c => {
+      try {
+        // treat same-origin or relative paths as local
+        return (!c.startsWith('http') || (location && location.origin && c.startsWith(location.origin)));
+      } catch (e) {
+        return !c.startsWith('http');
+      }
+    });
+    let localFailedCount = 0;
+    let loggedLocalFallbackNotice = false;
+
+    let tried = 0;
+    function tryNext() {
+      if (typeof jsQR !== 'undefined') return resolve();
+      if (tried >= candidates.length) {
+        // fallback: try fetching file contents and injecting as blob
+        const fallbackUrl = candidates[0] || 'libs/jsQR.js';
+        scannerLog('Attempting fetch+blob fallback for jsQR from ' + fallbackUrl, 'info');
+        fetch(fallbackUrl + (fallbackUrl.indexOf('?') === -1 ? '?v=' + Date.now() : '&v=' + Date.now()))
+          .then(res => {
+            if (!res.ok) throw new Error('Fetch failed: ' + res.status);
+            return res.text();
+          })
+          .then(text => {
+            const blob = new Blob([text], { type: 'application/javascript' });
+            const blobUrl = URL.createObjectURL(blob);
+            const script = document.createElement('script');
+            script.src = blobUrl;
+            script.onload = () => {
+              URL.revokeObjectURL(blobUrl);
+              if (typeof jsQR !== 'undefined') return resolve();
+              if (window.jsQR && typeof window.jsQR.default === 'function') {
+                window.jsQR = window.jsQR.default;
+                return resolve();
+              }
+              // Fallback: try CommonJS require (Electron with nodeIntegration)
+              try {
+                if (typeof require === 'function') {
+                  const mod = require('jsqr');
+                  if (mod) {
+                    window.jsQR = mod.default || mod;
+                    scannerLog('Mapped CommonJS require("jsqr") to jsQR global', 'info');
+                    return resolve();
+                  }
+                }
+              } catch (e) {
+                // ignore
+              }
+              return reject(new Error('Fetched jsQR but global not set'));
+            };
+            script.onerror = (e) => {
+              URL.revokeObjectURL(blobUrl);
+              reject(new Error('Failed to execute fetched jsQR'));
+            };
+            document.head.appendChild(script);
+          })
+          .catch(err => {
+            window.__jsQRLoaderPromise = null;
+            reject(err);
+          });
+        return;
+      }
+      const src = candidates[tried++];
+      scannerLog('Attempting to load jsQR from ' + src, 'info');
+      const script = document.createElement('script');
+      script.src = src + (src.indexOf('?') === -1 ? '?v=' + Date.now() : '&v=' + Date.now());
+      script.async = true;
+      const timer = setTimeout(() => {
+        script.onload = null;
+        script.onerror = null;
+        try { script.remove(); } catch (e) {}
+        // if this was a local candidate, mark a local failure
+        try {
+          if (localCandidates.includes(src)) localFailedCount++;
+        } catch (e) {}
+        tryNext();
+      }, timeout);
+      script.onload = () => {
+        clearTimeout(timer);
+        if (typeof jsQR !== 'undefined') {
+          scannerLog('Loaded jsQR from ' + src, 'info');
+          return resolve();
+        }
+        if (window.jsQR && typeof window.jsQR.default === 'function') {
+          window.jsQR = window.jsQR.default;
+          scannerLog('Mapped jsQR.default to jsQR global', 'info');
+          return resolve();
+        }
+        // Fallback: try CommonJS require (Electron with nodeIntegration)
+        try {
+          if (typeof require === 'function') {
+            const mod = require('jsqr');
+            if (mod) {
+              window.jsQR = mod.default || mod;
+              scannerLog('Mapped CommonJS require("jsqr") to jsQR global', 'info');
+              try { script.remove(); } catch (e) {}
+              return resolve();
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+        try { script.remove(); } catch (e) {}
+        // If this is a local candidate failure, increment counter
+        try {
+          if (localCandidates.includes(src)) localFailedCount++;
+        } catch (e) {}
+
+        // If all local candidates have been attempted and failed, log that we are moving to external fallbacks
+        try {
+          if (!loggedLocalFallbackNotice && localCandidates.length > 0 && localFailedCount >= localCandidates.length) {
+            scannerLog('All local jsQR candidates failed to load; attempting external fallbacks.', 'warn');
+            loggedLocalFallbackNotice = true;
+          }
+        } catch (e) {}
+
+        tryNext();
+      };
+      script.onerror = () => {
+        clearTimeout(timer);
+        script.onload = null;
+        script.onerror = null;
+        try { script.remove(); } catch (e) {}
+        scannerLog('Failed to load jsQR from ' + src, 'warn');
+        try {
+          if (localCandidates.includes(src)) localFailedCount++;
+        } catch (e) {}
+        try {
+          if (!loggedLocalFallbackNotice && localCandidates.length > 0 && localFailedCount >= localCandidates.length) {
+            scannerLog('All local jsQR candidates failed to load; attempting external fallback(s).', 'warn');
+            loggedLocalFallbackNotice = true;
+          }
+        } catch (e) {}
+        tryNext();
+      };
+      document.head.appendChild(script);
+    }
+    tryNext();
+  });
+  return window.__jsQRLoaderPromise;
+}
+
+async function detectNow() {
+  try {
+    if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) {
+      scannerLog('Video not ready for detectNow()', 'warn');
+      showScanNotification('Camera not ready for manual detection', true, true);
+      return;
+    }
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    scannerLog(`Performing single-frame jsQR detection (w:${canvas.width} h:${canvas.height})`, 'info');
+    try {
+      await ensureJsQRAvailable();
+    } catch (e) {
+      const msg = 'Failed to load jsQR for manual detection: ' + (e && e.message ? e.message : String(e));
+      scannerLog(msg, 'error');
+      showScanNotification(msg, true, true);
+      return;
+    }
+    const code = (typeof jsQR !== 'undefined') ? jsQR(imageData.data, canvas.width, canvas.height) : null;
+    if (code) {
+      scannerLog('Manual detect: QR found: ' + code.data, 'info');
+      handleDetectedCode(code);
+    } else {
+      scannerLog('Manual detect: no QR found in frame', 'warn');
+      showScanNotification('No QR code detected in the frame', true, false);
+    }
+  } catch (err) {
+    const msg = 'detectNow error: ' + (err?.message || err);
+    scannerLog(msg, 'error');
+    showScanNotification(msg, true, true);
+  }
+}
+
+// Show a temporary notification near the scan area. level: isError flag styles it.
+function showScanNotification(text, autoHide = true, isError = false) {
+  try {
+    const scanContainer = document.getElementById('scan') || document.body;
+    let notif = document.getElementById('scan-notification');
+    if (!notif) {
+      notif = document.createElement('div');
+      notif.id = 'scan-notification';
+      notif.style.position = 'absolute';
+      notif.style.top = '12px';
+      notif.style.left = '50%';
+      notif.style.transform = 'translateX(-50%)';
+      notif.style.zIndex = '1250';
+      notif.style.background = isError ? '#b00020' : '#222';
+      notif.style.color = '#fff';
+      notif.style.padding = '10px 14px';
+      notif.style.borderRadius = '8px';
+      notif.style.boxShadow = '0 6px 18px rgba(0,0,0,0.3)';
+      notif.style.maxWidth = 'min(90%, 720px)';
+      notif.style.overflow = 'hidden';
+      notif.style.display = 'flex';
+      notif.style.gap = '8px';
+      notif.style.alignItems = 'center';
+      const textSpan = document.createElement('span');
+      textSpan.id = 'scan-notification-text';
+      textSpan.style.flex = '1 1 auto';
+      const copyBtn = document.createElement('button');
+      copyBtn.textContent = 'Copy';
+      copyBtn.style.background = '#fff';
+      copyBtn.style.color = '#000';
+      copyBtn.style.border = 'none';
+      copyBtn.style.padding = '6px 10px';
+      copyBtn.style.borderRadius = '6px';
+      copyBtn.style.cursor = 'pointer';
+      copyBtn.addEventListener('click', () => {
+        try { navigator.clipboard.writeText(document.getElementById('scan-notification-text').textContent); scannerLog('Copied notification text', 'info'); }
+        catch(e){ scannerLog('Clipboard copy failed: '+(e?.message||e), 'warn'); }
+      });
+      notif.appendChild(textSpan);
+      notif.appendChild(copyBtn);
+      (scanContainer || document.body).appendChild(notif);
+    }
+    const textSpan = document.getElementById('scan-notification-text');
+    if (textSpan) textSpan.textContent = text;
+    notif.style.opacity = '1';
+    notif.style.transition = 'opacity 0.35s ease';
+    if (autoHide) setTimeout(() => { try { notif.style.opacity = '0'; setTimeout(()=>notif.remove(),400); } catch(e){} }, 6000);
+  } catch (e) {
+    scannerLog('showScanNotification failed: ' + (e?.message || e), 'warn');
+  }
+}
+
+function isMobileDevice() {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
+function scanQRCode() {
+  if (video.readyState === video.HAVE_ENOUGH_DATA && isResultHidden) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    try {
+      frameCounter++;
+      if (frameCounter % 10 === 0) {
+        scannerLog(`Frame captured (w:${canvas.width} h:${canvas.height}) [frame ${frameCounter}]`, 'debug');
+      }
+    } catch (e) {
+      // ignore frame logging errors
+    }
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    if (typeof jsQR === 'undefined') {
+      // Try to dynamically load jsQR in background (non-blocking for animation loop)
+      ensureJsQRAvailable().then(() => {
+        scannerLog('jsQR dynamically loaded in scan loop', 'info');
+      }).catch((err) => {
+        scannerLog('Failed to dynamically load jsQR in scan loop: ' + (err && err.message ? err.message : String(err)), 'error');
+      });
+    }
+    const code = (typeof jsQR !== 'undefined') ? jsQR(imageData.data, canvas.width, canvas.height) : null;
+    if (code) {
+        scannerLog('QR detected: ' + code.data, 'info');
+      const type = checkDataType(code.data);
+      scan.classList.remove("height-30", "height-60");
+      if (type === 'URL') {
+        scan.classList.add("height-30");
+      } else {
+        scan.classList.add("height-60");
+      }
+      scanResult.classList.remove('d-none');
+      qrDataType.innerText = `Type: ${type}`;
+      const urlResultElement = document.getElementById("url-result");
+      urlResultElement.innerText = code.data;
+      if (type === 'URL') {
+        urlResultElement.classList.add('url-result');
+      } else {
+        urlResultElement.classList.remove('url-result');
+      }
+      isResultHidden = false;
+      if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+      }
+      scan.style.background = "#1E1E1E";
+    }
+  }
+  if (isResultHidden) {
+    requestAnimationFrame(scanQRCode);
+  }
+}
+
+function checkDataType(qrData) {
+  if (validateEmail(qrData)) return 'EMAIL';
+  if (validateUrl(qrData)) return 'URL';
+  return 'TEXT';
+}
+
+function validateEmail(email) {
+  const regExpForEmail = /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+  return regExpForEmail.test(email);
+}
+
+function validateUrl(url) {
+  const regExpForURL = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!\-\/]))?/;
+  return regExpForURL.test(url);
+}
+
+function stopScanner() {
+  if (videoStream) {
+    videoStream.getTracks().forEach(track => track.stop());
+    videoStream = null;
+  }
+  if (scanTimeout) {
+    clearTimeout(scanTimeout);
+    scanTimeout = null;
+  }
+  isResultHidden = true;
+  scanResult.classList.add("d-none");
+  accessMessage.classList.remove("d-none");
+  const cameraError = document.getElementById("cameraError");
+  cameraError.classList.add("d-none");
+  scan.classList.remove("height-30", "height-60");
+  scannerLog('Scanner stopped', 'info');
+  const debugDiv = document.getElementById('scanner-debug');
+  if (debugDiv) { debugDiv.classList.remove('show'); debugDiv.classList.add('d-none'); }
+}
+
+window.openScannerModal = function(targetFieldName) {
+  window.__scannerTargetField = targetFieldName;
+  window.__lastScanValue = '';
+  const modal = document.getElementById('scanner-modal');
+  openModal(modal);
+  initScanner();
+};
+
+window.closeScannerModal = function() {
+  stopScanner();
+  const modal = document.getElementById('scanner-modal');
+  closeModal(modal);
+  window.__scannerTargetField = null;
+};
+
+// Desktop capture helpers
+window.__desktopBuffer = '';
+window.__desktopTimer = null;
+window.__desktopListener = null;
+
+function startDesktopCapture() {
+  const input = document.getElementById('scanner-desktop-input');
+  const status = document.getElementById('scanner-desktop-status');
+  if (!input) return;
+  input.value = '';
+  input.focus();
+  if (status) status.textContent = 'Ready to capture input. Focused.';
+
+  // Key capture: accumulate characters until Enter or pause
+  const onKey = (e) => {
+    if (e.key === 'Enter') {
+      handleDesktopComplete(input.value.trim());
+      input.value = '';
+      e.preventDefault();
+      return;
+    }
+    // Allow normal typing/paste; we'll use input event for buffer handling
+  };
+
+  const onInput = (e) => {
+    const v = input.value.trim();
+    if (!v) return;
+    // Debounce short bursts typical of barcode scanner
+    if (window.__desktopTimer) clearTimeout(window.__desktopTimer);
+    window.__desktopTimer = setTimeout(() => {
+      handleDesktopComplete(v);
+      input.value = '';
+    }, 80);
+  };
+
+  const onPaste = (e) => {
+    setTimeout(() => {
+      const v = input.value.trim();
+      if (v) handleDesktopComplete(v);
+      input.value = '';
+    }, 30);
+  };
+
+  input.addEventListener('keydown', onKey);
+  input.addEventListener('input', onInput);
+  input.addEventListener('paste', onPaste);
+
+  window.__desktopListener = { onKey, onInput, onPaste, input };
+
+  // Wire upload input
+  const imgInput = document.getElementById('scanner-image-input');
+  if (imgInput) {
+    imgInput.addEventListener('change', handleImageUpload);
+  }
+
+  // Mini camera buttons
+  document.getElementById('btn-start-mini-camera')?.addEventListener('click', startMiniCamera);
+  document.getElementById('btn-stop-mini-camera')?.addEventListener('click', stopMiniCamera);
+  document.getElementById('btn-clear-desktop-input')?.addEventListener('click', () => { input.value = ''; input.focus(); });
+}
+
+function stopDesktopCapture() {
+  const info = document.getElementById('scanner-desktop-status');
+  if (info) info.textContent = 'Stopped.';
+  if (window.__desktopTimer) { clearTimeout(window.__desktopTimer); window.__desktopTimer = null; }
+  if (window.__desktopListener && window.__desktopListener.input) {
+    window.__desktopListener.input.removeEventListener('keydown', window.__desktopListener.onKey);
+    window.__desktopListener.input.removeEventListener('input', window.__desktopListener.onInput);
+    window.__desktopListener.input.removeEventListener('paste', window.__desktopListener.onPaste);
+  }
+  const imgInput = document.getElementById('scanner-image-input');
+  if (imgInput) imgInput.removeEventListener('change', handleImageUpload);
+  stopMiniCamera();
+}
+
+function handleDesktopComplete(value) {
+  if (!value) return;
+  window.__lastScanValue = value;
+  document.getElementById('scanner-desktop-status').textContent = `Detected: ${value}`;
+  const useBtn = document.getElementById('btn-use-scan');
+  if (useBtn) useBtn.disabled = false;
+}
+
+async function handleImageUpload(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const img = document.getElementById('scanner-image-preview');
+  img.src = url; img.style.display = 'block';
+  // Try detect via BarcodeDetector if present
+  if ('BarcodeDetector' in window) {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const canvas = document.getElementById('scanner-canvas');
+      canvas.width = bitmap.width; canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d'); ctx.drawImage(bitmap, 0, 0);
+      const detector = window.__barcodeDetector || new BarcodeDetector();
+      const results = await detector.detect(canvas);
+      if (results && results.length) {
+        handleDesktopComplete(results[0].rawValue || '');
+      } else {
+        document.getElementById('scanner-desktop-status').textContent = 'No code detected in image';
+      }
+    } catch (err) {
+      console.warn('Image detection failed', err);
+      document.getElementById('scanner-desktop-status').textContent = 'Image detection failed';
+    }
+  } else {
+    document.getElementById('scanner-desktop-status').textContent = 'BarcodeDetector not available for image detection';
+  }
+}
+
+let __miniStream = null;
+async function startMiniCamera() {
+  const vid = document.getElementById('scanner-mini-video');
+  const status = document.getElementById('scanner-desktop-status');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    if (status) status.textContent = 'Camera API not supported';
+    return;
+  }
+  try {
+    __miniStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    vid.srcObject = __miniStream; vid.style.display = 'block'; vid.play().catch(()=>{});
+    if (status) status.textContent = 'Mini camera started';
+    // Try using BarcodeDetector on this video periodically
+    if ('BarcodeDetector' in window) {
+      window.__barcodeDetector = window.__barcodeDetector || new BarcodeDetector();
+      // run small loop to detect
+      const loop = async () => {
+        if (!__miniStream) return;
+        try {
+          const results = await window.__barcodeDetector.detect(vid);
+          if (results && results.length) handleDesktopComplete(results[0].rawValue || '');
+        } catch (e) {}
+        setTimeout(loop, 300);
+      };
+      loop();
+    }
+  } catch (err) {
+    console.error('startMiniCamera', err);
+    if (status) status.textContent = 'Failed to start mini camera: ' + (err.message || err);
+  }
+}
+
+function stopMiniCamera() {
+  // Stop the mini camera stream (if active) and clear UI
+  try {
+    if (window.__miniStream) {
+      window.__miniStream.getTracks().forEach(t => t.stop());
+      window.__miniStream = null;
+    }
+  } catch (e) {
+    scannerLog('Error stopping mini camera: ' + (e?.message || e), 'warn');
+  }
+  const vid = document.getElementById('scanner-mini-video');
+  if (vid) {
+    try { vid.pause(); vid.srcObject = null; vid.style.display = 'none'; } catch (e) {}
+  }
+  const status = document.getElementById('scanner-desktop-status');
+  if (status) status.textContent = 'Stopped.';
+}
+
+// Shared handler for detected QR codes (jsQR-based)
+function handleDetectedCode(code) {
+  try {
+    // cache last scanned value globally for other helpers
+    window.__lastScanValue = code && code.data ? code.data : '';
+    const data = code && code.data ? code.data : '';
+    const type = checkDataType(data);
+    scan.classList.remove('height-30', 'height-60');
+    if (type === 'URL') scan.classList.add('height-30'); else scan.classList.add('height-60');
+    scanResult.classList.remove('d-none');
+    qrDataType.innerText = `Type: ${type}`;
+    const urlResultElement = document.getElementById('url-result');
+    if (type === 'URL') {
+      urlResultElement.classList.add('url-result');
+      urlResultElement.href = data;
+      urlResultElement.innerText = data;
+      urlResultElement.target = '_blank';
+      urlResultElement.rel = 'noreferrer noopener';
+    } else {
+      urlResultElement.classList.remove('url-result');
+      urlResultElement.removeAttribute('href');
+      urlResultElement.innerText = data;
+    }
+    isResultHidden = false;
+    // stop camera stream after a short delay so UI updates are visible
+    setTimeout(() => {
+      try {
+        if (videoStream) {
+          videoStream.getTracks().forEach(track => track.stop());
+          scannerLog('Camera tracks stopped after detection', 'debug');
+          videoStream = null;
+        }
+      } catch (e) {
+        scannerLog('Error stopping camera after detection: ' + (e?.message || e), 'warn');
+      }
+      scan.style.background = '#1E1E1E';
+    }, 250);
+
+    // Show a non-blocking notification bar with scanned text (and copy button)
+    try {
+      const scanContainer = document.getElementById('scan') || document.body;
+      let notif = document.getElementById('scan-notification');
+      if (!notif) {
+        notif = document.createElement('div');
+        notif.id = 'scan-notification';
+        notif.style.position = 'absolute';
+        notif.style.top = '12px';
+        notif.style.left = '50%';
+        notif.style.transform = 'translateX(-50%)';
+        notif.style.zIndex = '1250';
+        notif.style.background = '#222';
+        notif.style.color = '#fff';
+        notif.style.padding = '10px 14px';
+        notif.style.borderRadius = '8px';
+        notif.style.boxShadow = '0 6px 18px rgba(0,0,0,0.3)';
+        notif.style.maxWidth = 'min(90%, 720px)';
+        notif.style.overflow = 'hidden';
+        notif.style.display = 'flex';
+        notif.style.gap = '8px';
+        notif.style.alignItems = 'center';
+        const textSpan = document.createElement('span');
+        textSpan.id = 'scan-notification-text';
+        textSpan.style.flex = '1 1 auto';
+        const copyBtn = document.createElement('button');
+        copyBtn.textContent = 'Copy';
+        copyBtn.style.background = '#fff';
+        copyBtn.style.color = '#000';
+        copyBtn.style.border = 'none';
+        copyBtn.style.padding = '6px 10px';
+        copyBtn.style.borderRadius = '6px';
+        copyBtn.style.cursor = 'pointer';
+        copyBtn.addEventListener('click', () => {
+          try { navigator.clipboard.writeText(data); scannerLog('Copied scanned data to clipboard', 'info'); }
+          catch(e){ scannerLog('Clipboard copy failed: '+(e?.message||e), 'warn'); }
+        });
+        notif.appendChild(textSpan);
+        notif.appendChild(copyBtn);
+        (scanContainer || document.body).appendChild(notif);
+      }
+      const textSpan = document.getElementById('scan-notification-text');
+      if (textSpan) textSpan.textContent = `${type}: ${data}`;
+      notif.style.opacity = '1';
+      notif.style.transition = 'opacity 0.35s ease';
+      // auto-hide after 6s
+      setTimeout(() => {
+        try { notif.style.opacity = '0'; setTimeout(() => { notif.remove(); }, 400); }
+        catch(e){}
+      }, 6000);
+    } catch (e) {
+      scannerLog('Failed to show scan notification: ' + (e?.message || e), 'warn');
+    }
+
+    // Auto-fill target form field when scanner was opened for a specific field
+    try {
+      // prefer the window-scoped target field; ensure it's not null/undefined
+      const targetFieldName = (typeof window.__scannerTargetField !== 'undefined' && window.__scannerTargetField !== null) ? window.__scannerTargetField : null;
+      if (targetFieldName) {
+        const input = document.getElementById(`field-${targetFieldName}`);
+        if (input) {
+          // set value depending on input type
+          if (input.type === 'checkbox') {
+            input.checked = !!data;
+          } else {
+            input.value = data;
+          }
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.focus();
+          showScanNotification(`Applied scanned value to ${targetFieldName}`, true, false);
+          scannerLog(`Applied scanned value to field-${targetFieldName}`, 'info');
+          // close scanner modal after a short delay so user sees UI
+          setTimeout(() => { try { window.closeScannerModal(); } catch (e) {} }, 250);
+        } else {
+          scannerLog(`No input found with id field-${targetFieldName} to apply scanned value`, 'warn');
+        }
+      }
+    } catch (e) {
+      scannerLog('Auto-fill after detection failed: ' + (e?.message || e), 'warn');
+    }
+  } catch (e) {
+    scannerLog('handleDetectedCode error: ' + (e?.message || e), 'error');
+  }
+}
+
+window.__scanLoop = async function() {
+  if (!window.__scannerRunning) return;
+  const video = document.getElementById('scanner-video');
+  const status = document.getElementById('scanner-status');
+  const useBtn = document.getElementById('btn-use-scan');
+  if (!video) return;
+
+  try {
+    if (window.__barcodeDetector) {
+      try {
+        scannerLog('Attempting detection with BarcodeDetector...');
+        const results = await window.__barcodeDetector.detect(video);
+        scannerLog(`Detection results: ${results ? results.length : 0} codes found`);
+        if (results && results.length > 0) {
+          const newValue = results[0].rawValue || '';
+          scannerLog(`Detected code: "${newValue}"`);
+          if (newValue && newValue !== window.__lastScanValue) {
+            window.__lastScanValue = newValue;
+            scannerLog(`New code detected: "${newValue}"`);
+            if (status) status.textContent = `Detected: ${window.__lastScanValue}`;
+            if (useBtn) useBtn.disabled = false;
+            
+            // Show visual feedback
+            const canvas = document.getElementById('scanner-canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.font = "24px Arial";
+            ctx.fillStyle = "yellow";
+            ctx.strokeStyle = "black";
+            ctx.lineWidth = 2;
+            ctx.strokeText(newValue, 10, 30);
+            ctx.fillText(newValue, 10, 30);
+            
+            // Auto-use the scanned value for mobile
+            const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.matchMedia('(max-width:800px)').matches;
+            if (isMobile) {
+              scannerLog('Auto-using scanned value on mobile');
+              playScanBeep();
+              window.useScannedValue();
+              return; // Stop scanning after successful scan
+            }
+          }
+        } else {
+          // Clear overlay if no detection
+          const canvas = document.getElementById('scanner-canvas');
+          if (canvas) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+          }
+        }
+      } catch (err) {
+        scannerLog(`Detection error: ${err.message}`, 'warn');
+        // ignore detection errors
+      }
+    } else {
+      scannerLog('No barcode detector available', 'warn');
+    }
+  } catch (err) {
+    scannerLog(`scanLoop error: ${err.message}`, 'error');
+  } finally {
+    window.__scannerAnimation = requestAnimationFrame(window.__scanLoop);
+  }
+};
+
+window.scanOnce = async function() {
+  const video = document.getElementById('scanner-video');
+  const status = document.getElementById('scanner-status');
+  const useBtn = document.getElementById('btn-use-scan');
+  if (!video) return;
+
+  if (window.__barcodeDetector) {
+    try {
+      const results = await window.__barcodeDetector.detect(video);
+      if (results && results.length > 0) {
+        window.__lastScanValue = results[0].rawValue || '';
+        if (status) status.textContent = `Detected: ${window.__lastScanValue}`;
+        if (useBtn) useBtn.disabled = false;
+      } else {
+        if (status) status.textContent = 'No code detected in frame';
+      }
+    } catch (err) {
+      console.error('scanOnce detect error', err);
+      if (status) status.textContent = 'Error during detection';
+    }
+  } else {
+    if (status) status.textContent = 'BarcodeDetector not available';
+  }
+};
+
+window.useScannedValue = function() {
+  if (!window.__scannerTargetField) {
+    alert('Error: No target field selected for scanning.');
+    return;
+  }
+  if (!window.__lastScanValue) {
+    alert('Error: No barcode detected yet. Please scan a code first.');
+    return;
+  }
+  const input = document.getElementById(`field-${window.__scannerTargetField}`);
+  if (input) {
+    input.value = window.__lastScanValue;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+    alert(`Success: Scanned value "${window.__lastScanValue}" applied to ${window.__scannerTargetField} field.`);
+  } else {
+    alert(`Error: Could not find input field for ${window.__scannerTargetField}.`);
+  }
+  window.closeScannerModal();
+};
+
+// Play a beep sound for successful scan
+function playScanBeep() {
+  try {
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // 800 Hz beep
+    oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.1); // rise to 1000 Hz
+    
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+    
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.3);
+  } catch (e) {
+    // Fallback: try to play a system beep or ignore
+    console.warn('Beep not supported');
+  }
+}
+
+// --- Scanner implementation (camera + BarcodeDetector) ---
+let __scannerStream = null;
+let __barcodeDetector = null;
+let __scannerRunning = false;
+let __scannerAnimation = null;
+let __lastScanValue = '';
+let __scannerTargetField = null;
+
+function openScannerModal(targetFieldName) {
+  // Delegate to window-scoped implementation (handles mobile vs desktop)
+  if (window.openScannerModal) return window.openScannerModal(targetFieldName);
+}
+
+function closeScannerModal() {
+  if (window.closeScannerModal) return window.closeScannerModal();
+}
+
+async function startScanner() {
+  const status = document.getElementById('scanner-status');
+  const video = document.getElementById('scanner-video');
+  if (!video) return;
+
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      if (status) status.textContent = 'Camera API not supported';
+      return;
+    }
+
+    __scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    video.srcObject = __scannerStream;
+    video.play().catch(()=>{});
+
+    // Initialize BarcodeDetector if available
+    if ('BarcodeDetector' in window) {
+      try {
+        const supported = await window.BarcodeDetector.getSupportedFormats();
+        // prefer common 2D formats
+        const formats = ['qr_code', 'data_matrix', 'ean_13', 'code_128'].filter(f => supported.includes(f));
+        __barcodeDetector = new BarcodeDetector({ formats: formats.length ? formats : supported });
+      } catch (err) {
+        console.warn('BarcodeDetector init failed, will attempt default:', err);
+        __barcodeDetector = new BarcodeDetector();
+      }
+    } else {
+      __barcodeDetector = null;
+      console.warn('BarcodeDetector not supported in this environment');
+    }
+
+    __scannerRunning = true;
+    if (status) status.textContent = 'Camera started — looking for codes...';
+    scanLoop();
+  } catch (err) {
+    console.error('startScanner error', err);
+    if (status) status.textContent = 'Failed to start camera: ' + (err.message || err);
+  }
+}
+
+// (Removed duplicate stopScanner implementation that referenced Quagga/ZXing.)
+
+async function scanLoop() {
+  if (!__scannerRunning) return;
+  const video = document.getElementById('scanner-video');
+  const status = document.getElementById('scanner-status');
+  const useBtn = document.getElementById('btn-use-scan');
+
+  if (!video) return;
+
+  try {
+    if (__barcodeDetector) {
+      try {
+        const results = await __barcodeDetector.detect(video);
+        if (results && results.length > 0) {
+          __lastScanValue = results[0].rawValue || '';
+          if (status) status.textContent = `Detected: ${__lastScanValue}`;
+          if (useBtn) useBtn.disabled = false;
+          // do not auto-close; allow user to press "Use Scanned Value"
+        }
+      } catch (err) {
+        // detection may throw occasionally — ignore and continue
+        // fallback to no-op
+      }
+    }
+  } catch (err) {
+    console.error('scanLoop error', err);
+  } finally {
+    __scannerAnimation = requestAnimationFrame(scanLoop);
+  }
+}
+
+async function scanOnce() {
+  // single-pass detection
+  const video = document.getElementById('scanner-video');
+  const status = document.getElementById('scanner-status');
+  const useBtn = document.getElementById('btn-use-scan');
+  if (!video) return;
+
+  if (__barcodeDetector) {
+    try {
+      const results = await __barcodeDetector.detect(video);
+      if (results && results.length > 0) {
+        __lastScanValue = results[0].rawValue || '';
+        if (status) status.textContent = `Detected: ${__lastScanValue}`;
+        if (useBtn) useBtn.disabled = false;
+      } else {
+        if (status) status.textContent = 'No code detected in frame';
+      }
+    } catch (err) {
+      console.error('scanOnce detect error', err);
+      if (status) status.textContent = 'Error during detection';
+    }
+  } else {
+    if (status) status.textContent = 'BarcodeDetector not available';
+  }
+}
+
+function useScannedValue() {
+  if (!__scannerTargetField) return;
+  if (!__lastScanValue) return;
+  const input = document.getElementById(`field-${__scannerTargetField}`);
+  if (input) {
+    input.value = __lastScanValue;
+    // trigger input event so any listeners update
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+  }
+  closeScannerModal();
+}
+
+// Wire scanner modal buttons now that DOM exists
+document.addEventListener('DOMContentLoaded', () => {
+  const start = document.getElementById('btn-start-scanner');
+  const stop = document.getElementById('btn-stop-scanner');
+  const scan = document.getElementById('btn-scan-once');
+  const useBtn = document.getElementById('btn-use-scan');
+  const closeBtn = document.getElementById('btn-close-scanner');
+  const xClose = document.getElementById('scanner-close');
+
+  if (start) start.addEventListener('click', startScanner);
+  if (stop) stop.addEventListener('click', stopScanner);
+  if (scan) scan.addEventListener('click', scanOnce);
+  if (useBtn) useBtn.addEventListener('click', useScannedValue);
+  if (closeBtn) closeBtn.addEventListener('click', closeScannerModal);
+  if (xClose) xClose.addEventListener('click', closeScannerModal);
+});
+}
+
+// Event Listeners
+function initializeEventListeners() {
+  const safe = id => document.getElementById(id);
+
+  // Module Modal
+  safe('btn-new-module')?.addEventListener('click', () => openModuleModal(false));
+  safe('btn-cancel-module')?.addEventListener('click', closeModuleModal);
+  safe('btn-save-module')?.addEventListener('click', saveModule);
+  safe('module-mode')?.addEventListener('change', toggleModeConfig);
+  safe('btn-fetch-metadata')?.addEventListener('click', fetchMetadata);
+
+  // Settings button (desktop)
+  safe('btn-settings')?.addEventListener('click', openSettingsModal);
+
+  // Record Modal
+  safe('btn-add-record')?.addEventListener('click', () => openRecordModal());
+  safe('btn-cancel-record')?.addEventListener('click', closeRecordModal);
+  safe('btn-save-record')?.addEventListener('click', saveRecord);
+
+  // Module Actions
+  safe('btn-refresh')?.addEventListener('click', refreshCurrentModule);
+  safe('btn-delete-module')?.addEventListener('click', deleteCurrentModule);
+  safe('btn-add-field')?.addEventListener('click', openAddFieldModal);
+
+  // Sync Modal
+  safe('btn-sync-manager')?.addEventListener('click', openSyncModal);
+  safe('btn-close-sync')?.addEventListener('click', closeSyncModal);
+  safe('btn-save-sync')?.addEventListener('click', saveSyncConfig);
+  safe('btn-detect-mappings')?.addEventListener('click', detectMappings);
+
+  // Add Field Modal
+  safe('btn-cancel-field')?.addEventListener('click', closeAddFieldModal);
+  safe('btn-save-field')?.addEventListener('click', saveCustomField);
+
+  // Web Server
+  safe('btn-start-server')?.addEventListener('click', startWebServer);
+  safe('btn-stop-server')?.addEventListener('click', stopWebServer);
+  safe('btn-close-server-modal')?.addEventListener('click', closeServerModal);
+  safe('btn-copy-url')?.addEventListener('click', copyServerUrl);
+
+  // Tab switching
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const tabName = e.target.getAttribute('data-tab');
+      switchTab(tabName);
+    });
+  });
+
+  // Close modals on background click
+  document.querySelectorAll('.modal').forEach(modal => {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal(modal);
+    });
+  });
+
+  // Close buttons
+  document.querySelectorAll('.close').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const modal = e.currentTarget.closest('.modal');
+      if (modal) closeModal(modal);
+    });
+  });
+
+  // Mobile nav
+  safe('nav-home')?.addEventListener('click', () => {
+    document.getElementById('welcome-screen').scrollIntoView({behavior:'smooth'});
+    closeModal(document.getElementById('server-modal'));
+    closeModal(document.getElementById('sync-modal'));
+    closeModal(document.getElementById('settings-modal'));
+  });
+
+  safe('nav-settings')?.addEventListener('click', () => {
+    openSettingsModal();
+  });
+
+  // Settings modal actions
+  safe('settings-create-module')?.addEventListener('click', () => {
+    document.getElementById('btn-new-module').click();
+    closeSettingsModal();
+  });
+  safe('settings-sync-manager')?.addEventListener('click', () => {
+    document.getElementById('btn-sync-manager').click();
+    closeSettingsModal();
+  });
+  safe('settings-start-server')?.addEventListener('click', async () => {
+    await startWebServer();
+    closeSettingsModal();
+  });
+  
+
+  safe('settings-close')?.addEventListener('click', closeSettingsModal);
+  safe('settings-close-btn')?.addEventListener('click', closeSettingsModal);
+}
+
+// Developer settings: persist using localStorage and toggle UI
+function initDevSettings() {
+  try {
+    const enabled = localStorage.getItem('devSettingsEnabled') === 'true';
+    const checkbox = document.getElementById('settings-dev-toggle');
+    if (checkbox) {
+      checkbox.checked = enabled;
+      checkbox.addEventListener('change', (e) => {
+        const val = !!e.target.checked;
+        localStorage.setItem('devSettingsEnabled', val ? 'true' : 'false');
+        applyDevSettings(val);
+        // create or remove dev scanner controls when toggled
+        try { createDevScannerControls(val); } catch(e) { console.warn('createDevScannerControls toggle failed', e); }
+      });
+    }
+    applyDevSettings(enabled);
+    // create dev scanner controls if enabled on load
+    try { createDevScannerControls(enabled); } catch(e) { console.warn('createDevScannerControls init failed', e); }
+    // If developer settings are enabled, attach input diagnostics to help
+    // reproduce intermittent input/focus issues (only logs to DevTools).
+    if (enabled) {
+      try {
+        enableInputDiagnostics();
+      } catch (e) {
+        console.warn('Failed to enable input diagnostics', e);
+      }
+    }
+  } catch (err) {
+    console.warn('Dev settings init failed:', err);
+  }
+}
+
+// Inject dev-only scanner demo buttons and modal when developer mode is enabled.
+function createDevScannerControls(enable) {
+  try {
+    const existing = document.getElementById('dev-scanner-controls');
+    if (!enable) {
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      const existingModal = document.getElementById('dev-demo-modal');
+      if (existingModal && existingModal.parentNode) existingModal.parentNode.removeChild(existingModal);
+      return;
+    }
+    if (existing) return; // already present
+
+    const header = document.querySelector('.header');
+    const container = document.createElement('div');
+    container.id = 'dev-scanner-controls';
+    container.style.marginTop = '10px';
+    container.style.display = 'flex';
+    container.style.gap = '8px';
+
+    const btn1 = document.createElement('button');
+    btn1.id = 'open-demo1-btn';
+    btn1.className = 'btn';
+    btn1.textContent = 'Open Demo 1 (demo1.html)';
+
+    const btn2 = document.createElement('button');
+    btn2.id = 'open-demo2-btn';
+    btn2.className = 'btn secondary';
+    btn2.textContent = 'Open Demo 2 (demo2html)';
+
+    container.appendChild(btn1);
+    container.appendChild(btn2);
+
+    // modal
+    const modal = document.createElement('div');
+    modal.id = 'dev-demo-modal';
+    modal.className = 'modal';
+    modal.style.zIndex = '1300';
+
+    const modalContent = document.createElement('div');
+    modalContent.className = 'modal-content';
+    modalContent.style.maxWidth = '900px';
+
+    const modalHeader = document.createElement('div');
+    modalHeader.className = 'modal-header';
+    const title = document.createElement('strong');
+    title.id = 'dev-demo-title';
+    title.textContent = 'Scanner Demo';
+    const closeBtn = document.createElement('button');
+    closeBtn.id = 'dev-demo-close';
+    closeBtn.className = 'btn';
+    closeBtn.textContent = 'Close';
+    modalHeader.appendChild(title);
+    modalHeader.appendChild(closeBtn);
+
+    const modalBody = document.createElement('div');
+    modalBody.className = 'modal-body';
+    const iframe = document.createElement('iframe');
+    iframe.id = 'dev-demo-iframe';
+    iframe.src = '';
+    iframe.style.width = '100%';
+    iframe.style.height = '60vh';
+    iframe.style.border = '0';
+    iframe.style.borderRadius = '6px';
+
+    const openNew = document.createElement('button');
+    openNew.id = 'dev-demo-open-new';
+    openNew.className = 'btn';
+    openNew.textContent = 'Open in new window';
+    const btnWrap = document.createElement('div');
+    btnWrap.style.marginTop = '8px';
+    btnWrap.style.display = 'flex';
+    btnWrap.style.gap = '8px';
+    btnWrap.appendChild(openNew);
+
+    modalBody.appendChild(iframe);
+    modalBody.appendChild(btnWrap);
+
+    modalContent.appendChild(modalHeader);
+    modalContent.appendChild(modalBody);
+    modal.appendChild(modalContent);
+
+    // attach to header (below header-actions)
+    if (header) header.appendChild(container);
+    document.body.appendChild(modal);
+
+    // append container after header-actions to keep layout consistent
+    const headerActions = document.querySelector('.header .header-actions');
+    if (headerActions && headerActions.parentNode) headerActions.parentNode.insertBefore(container, headerActions.nextSibling);
+
+    // wiring
+    btn1.addEventListener('click', () => {
+      iframe.src = 'demo1.html';
+      title.textContent = 'Demo 1 — demo1.html';
+      openModal(modal);
+    });
+    btn2.addEventListener('click', () => {
+      iframe.src = 'demo2html';
+      title.textContent = 'Demo 2 — demo2html';
+      openModal(modal);
+    });
+    closeBtn.addEventListener('click', () => { iframe.src = ''; closeModal(modal); });
+    openNew.addEventListener('click', () => { window.open(iframe.src || 'about:blank', '_blank'); });
+
+  } catch (e) {
+    console.warn('createDevScannerControls error', e);
+  }
+}
+
+// Developer-only diagnostics: log input focus, blur and pointer events.
+// Enabled when Developer Settings are toggled on to help reproduce focus/time-input bugs.
+function enableInputDiagnostics() {
+  if (window.__inputDiagnosticsEnabled) return;
+  window.__inputDiagnosticsEnabled = true;
+
+  console.info('[Diagnostics] Input diagnostics enabled');
+
+  document.addEventListener('focusin', (e) => {
+    const t = e.target;
+    if (!t) return;
+    if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) {
+      console.info('[Diagnostics] focusin', { tag: t.tagName, type: t.type, id: t.id, name: t.name, value: t.value });
+    }
+  }, true);
+
+  document.addEventListener('focusout', (e) => {
+    const t = e.target;
+    if (!t) return;
+    if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) {
+      console.info('[Diagnostics] focusout', { tag: t.tagName, type: t.type, id: t.id, name: t.name, value: t.value });
+    }
+  }, true);
+
+  document.addEventListener('pointerdown', (e) => {
+    const t = e.target;
+    console.info('[Diagnostics] pointerdown', { tag: t && t.tagName, id: t && t.id, classes: t && t.className });
+  }, true);
+
+  // Log modal open/close events (class changes)
+  const observer = new MutationObserver(muts => {
+    muts.forEach(mut => {
+      if (mut.type === 'attributes' && mut.attributeName === 'class') {
+        const el = mut.target;
+        if (el && el.classList) {
+          if (el.classList.contains('modal') && el.classList.contains('active')) {
+            console.info('[Diagnostics] modal opened', { id: el.id });
+          } else if (el.classList.contains('modal') && !el.classList.contains('active')) {
+            console.info('[Diagnostics] modal closed', { id: el.id });
+          }
+        }
+      }
+    });
+  });
+
+  document.querySelectorAll('.modal').forEach(m => observer.observe(m, { attributes: true }));
+}
+
+function applyDevSettings(enabled) {
+  // Show/hide Add Field button in module view
+  const addFieldBtn = document.getElementById('btn-add-field');
+  if (addFieldBtn) addFieldBtn.style.display = enabled && currentModule?.mode === 'offline' ? 'inline-block' : 'none';
+
+  // Show/hide Sync Manager button (header)
+  const syncBtn = document.getElementById('btn-sync-manager');
+  if (syncBtn) syncBtn.style.display = enabled ? 'inline-block' : 'none';
+
+  // Show/hide New Module button (header) — only available when developer settings enabled
+  const newModuleBtn = document.getElementById('btn-new-module');
+  if (newModuleBtn) newModuleBtn.style.display = enabled ? 'inline-block' : 'none';
+
+  // Show/hide Delete Module button (same as Add Field behavior)
+  const deleteBtn = document.getElementById('btn-delete-module');
+  if (deleteBtn) deleteBtn.style.display = enabled ? 'inline-block' : 'none';
+
+  // Also adjust module item actions if present (desktop sidebar)
+  document.querySelectorAll('.module-item .module-item-mode').forEach(el => {
+    el.style.display = 'block';
+  });
+}
+
+// Module Management
+async function loadModules() {
+  try {
+    const result = await API.getModules();
+    // API.getModules may return an array or an object { modules: [...] }
+    if (Array.isArray(result)) modules = result;
+    else if (result && Array.isArray(result.modules)) modules = result.modules;
+    else modules = [];
+    renderModulesList();
+  } catch (error) {
+    console.error('Error loading modules:', error);
+    showError('Failed to load modules');
+  }
+}
+
+function renderModulesList() {
+  const sidebarContainer = document.getElementById('modules-list');
+
+  if (sidebarContainer) {
+    if (modules.length === 0) {
+      sidebarContainer.innerHTML = '<p class="empty-state">No modules yet. Create one to get started!</p>';
+    } else {
+      sidebarContainer.innerHTML = modules.map(module => `
+        <div class="module-item ${currentModule?.id === module.id ? 'active' : ''}" 
+             onclick="selectModule('${module.id}')">
+          <div class="module-item-name">${module.name}</div>
+          <div class="module-item-mode">${module.mode === 'online' ? '🌐 Online' : '💾 Offline'}</div>
+        </div>
+      `).join('');
+    }
+  }
+
+  // Also render module cards on the main welcome screen
+  const cards = document.getElementById('modules-cards');
+    if (cards) {
+      if (modules.length === 0) {
+        cards.innerHTML = '<p class="empty-state">No modules yet. Create one to get started!</p>';
+      } else {
+        cards.innerHTML = modules.map(m => `
+        <div class="module-card" onclick="selectModule('${m.id}')">
+          <div class="mc-title">${m.name}</div>
+          <div class="mc-sub">${m.mode === 'online' ? 'Online • Remote API' : 'Offline • Local JSON/Excel'}</div>
+          <div class="mc-meta">
+            <div class="mc-badge">${m.mode === 'online' ? 'Online' : 'Offline'}</div>
+            <div style="flex:1"></div>
+          </div>
+        </div>
+      `).join('');
+      }
+    }
+}
+
+async function selectModule(moduleId) {
+  try {
+    currentModule = modules.find(m => m.id === moduleId);
+    if (!currentModule) return;
+
+    renderModulesList();
+    // Reset paging on module switch
+    currentPage = 0;
+    await loadModuleData();
+    showModuleView();
+  } catch (error) {
+    console.error('Error selecting module:', error);
+    showError('Failed to load module');
+  }
+}
+
+async function loadModuleData() {
+  try {
+    if (!currentModule) return;
+    const moduleTitleEl = document.getElementById('module-title');
+    if (moduleTitleEl) moduleTitleEl.textContent = currentModule.name;
+    const badge = document.getElementById('module-mode-badge');
+    if (badge) {
+      badge.textContent = currentModule.mode === 'online' ? 'Online' : 'Offline';
+      badge.className = `badge ${currentModule.mode}`;
+    }
+
+    // Show/hide add field button for offline modules
+    const addFieldBtn = document.getElementById('btn-add-field');
+    try {
+      const devEnabled = localStorage.getItem('devSettingsEnabled') === 'true';
+      if (addFieldBtn) addFieldBtn.style.display = (devEnabled && currentModule.mode === 'offline') ? 'inline-block' : 'none';
+      const deleteBtn = document.getElementById('btn-delete-module');
+      if (deleteBtn) deleteBtn.style.display = devEnabled ? 'inline-block' : 'none';
+    } catch (err) {
+      if (addFieldBtn) addFieldBtn.style.display = currentModule.mode === 'offline' ? 'inline-block' : 'none';
+    }
+
+      // Fetch paginated data
+      const offset = currentPage * pageSize;
+      let result;
+      if (currentModule.mode === 'online') {
+        try {
+          result = await API.onlineFetchRecords(currentModule.id, offset, pageSize);
+        } catch (err) {
+          console.warn('onlineFetchRecords failed, falling back:', err && err.message);
+          result = await API.onlineFetchData(currentModule.id);
+        }
+      } else {
+        try {
+          result = await API.offlineFetchRecords(currentModule.id, offset, pageSize);
+        } catch (err) {
+          console.warn('offlineFetchRecords failed, falling back:', err && err.message);
+          result = await API.offlineFetchData(currentModule.id);
+        }
+      }
+
+    if (result.success) {
+      totalRecords = result.total || (result.data ? result.data.length : 0);
+      renderDataTable(result.data || []);
+      renderPaginationControls();
+    } else {
+      showError(result.error);
+    }
+  } catch (error) {
+    console.error('Error loading module data:', error);
+    showError('Failed to load data');
+  }
+}
+
+function renderDataTable(data) {
+  try {
+    const tableHead = document.getElementById('table-head');
+    const tableBody = document.getElementById('table-body');
+    const noDataMessage = document.getElementById('no-data-message');
+    const table = document.getElementById('data-table');
+
+    // Determine module fields from current module config
+    const moduleFields = currentModule?.config?.fields || [];
+
+    // If no data but module fields are provided, render header from fields (omit id)
+    if ((!data || data.length === 0) && moduleFields && moduleFields.length > 0) {
+      const keys = moduleFields.map(f => f.name);
+
+      // Render header only
+      tableHead.innerHTML = `
+        <tr>
+          ${keys.map(key => `<th>${formatLabel(key)}</th>`).join('')}
+          <th>Actions</th>
+        </tr>
+      `;
+
+      tableBody.innerHTML = '';
+      table.style.display = 'table';
+      noDataMessage.style.display = 'block';
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      table.style.display = 'none';
+      noDataMessage.style.display = 'block';
+      return;
+    }
+
+    table.style.display = 'table';
+    noDataMessage.style.display = 'none';
+
+    // Get all unique keys from data and omit `id` from display
+    const allKeys = [...new Set(data.flatMap(Object.keys))];
+    const keys = allKeys.filter(k => k !== 'id');
+
+    // Render header
+    tableHead.innerHTML = `
+      <tr>
+        ${keys.map(key => `<th>${formatLabel(key)}</th>`).join('')}
+        <th>Actions</th>
+      </tr>
+    `;
+
+    // Render body
+    tableBody.innerHTML = data.map(record => {
+      const recordId = record.id || record[currentModule.config?.idField || 'id'];
+      const cells = keys.map(key => {
+        const value = record[key];
+        // display human-readable time for common timestamp keys
+        if (/createdAt|updatedAt|created_at|updated_at|timestamp/i.test(key)) {
+          return `<td>${formatValue(value)}</td>`;
+        }
+        return `<td>${formatValue(value)}</td>`;
+      }).join('');
+
+      return `
+        <tr>
+          ${cells}
+          <td class="actions">
+            <button class="btn btn-sm btn-secondary" onclick='editRecord(${JSON.stringify(record)})'>Edit</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteRecord('${recordId}')">Delete</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Error rendering data table:', err);
+    showError('Failed to render table: ' + (err.message || err));
+  }
+}
+
+// Utility: create a human-friendly short id for display
+function formatFriendlyId(id) {
+  if (!id) return '';
+  // If looks like UUID, show start...end
+  if (/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-/.test(id)) {
+    return id.slice(0, 8) + '…' + id.slice(-4);
+  }
+  // For long strings, shorten
+  if (id.length > 14) return id.slice(0, 6) + '…' + id.slice(-4);
+  return id;
+}
+
+function copyFullId(text) {
+  try {
+    if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text);
+    } else {
+      // fallback
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    showSuccess('ID copied to clipboard');
+  } catch (err) {
+    console.error('Copy failed', err);
+    showError('Failed to copy ID');
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function escapeJs(s) {
+  return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\"/g, '\\"').replace(/\n/g, '\\n');
+}
+
+function formatLabel(key) {
+  return key
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/_/g, ' ')
+    .replace(/^\w/, c => c.toUpperCase())
+    .trim();
+}
+
+function formatValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  // If value looks like ISO timestamp, format human-readable
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+    const d = new Date(value);
+    if (!isNaN(d)) return d.toLocaleString();
+  }
+
+  // If value is a numeric epoch (seconds or milliseconds)
+  if (typeof value === 'number') {
+    // treat as ms if large (> 1e10), else seconds
+    const asMs = value > 1e10 ? value : value * 1000;
+    const d = new Date(asMs);
+    if (!isNaN(d) && Math.abs(Date.now() - asMs) < 1000 * 60 * 60 * 24 * 365 * 50) {
+      return d.toLocaleString();
+    }
+  }
+
+  return String(value);
+}
+
+// Pagination controls
+function renderPaginationControls() {
+  const containerId = 'pagination-controls';
+  let container = document.getElementById(containerId);
+  if (!container) return;
+
+  const totalPages = Math.max(1, Math.ceil((totalRecords || 0) / pageSize));
+  const info = `Page ${currentPage + 1} of ${totalPages} • ${totalRecords} records`;
+
+  container.innerHTML = `
+    <div class="pagination-row">
+      <button class="btn btn-secondary" id="page-prev" ${currentPage === 0 ? 'disabled' : ''}>◀ Prev</button>
+      <div class="page-info">${info}</div>
+      <button class="btn btn-secondary" id="page-next" ${currentPage + 1 >= totalPages ? 'disabled' : ''}>Next ▶</button>
+      <select id="page-size-select" class="page-size-select">
+        <option value="20" ${pageSize===20? 'selected':''}>20</option>
+        <option value="50" ${pageSize===50? 'selected':''}>50</option>
+        <option value="100" ${pageSize===100? 'selected':''}>100</option>
+      </select>
+    </div>
+  `;
+
+  document.getElementById('page-prev').addEventListener('click', async () => {
+    if (currentPage === 0) return;
+    currentPage -= 1;
+    await loadModuleData();
+  });
+
+  document.getElementById('page-next').addEventListener('click', async () => {
+    const totalPages = Math.max(1, Math.ceil((totalRecords || 0) / pageSize));
+    if (currentPage + 1 >= totalPages) return;
+    currentPage += 1;
+    await loadModuleData();
+  });
+
+  document.getElementById('page-size-select').addEventListener('change', async (e) => {
+    pageSize = parseInt(e.target.value, 10) || 50;
+    currentPage = 0;
+    await loadModuleData();
+  });
+}
+
+// Module Modal
+function openModuleModal(editMode = false) {
+  const modal = document.getElementById('module-modal');
+  const title = document.getElementById('module-modal-title');
+  
+  if (editMode && currentModule) {
+    title.textContent = 'Edit Module';
+    document.getElementById('module-name').value = currentModule.name;
+    document.getElementById('module-mode').value = currentModule.mode;
+    document.getElementById('module-mode').disabled = true; // Can't change mode
+    
+    if (currentModule.mode === 'online') {
+      document.getElementById('api-list').value = currentModule.config.apiEndpoints.list;
+      document.getElementById('api-create').value = currentModule.config.apiEndpoints.create;
+      document.getElementById('api-update').value = currentModule.config.apiEndpoints.update;
+      document.getElementById('api-delete').value = currentModule.config.apiEndpoints.delete;
+      document.getElementById('api-headers').value = JSON.stringify(currentModule.config.headers, null, 2);
+      document.getElementById('api-id-field').value = currentModule.config.idField;
+    }
+    
+    toggleModeConfig();
+  } else {
+    title.textContent = 'Create Module';
+    document.getElementById('module-form')?.reset();
+    if (document.getElementById('module-mode')) document.getElementById('module-mode').disabled = false;
+    toggleModeConfig();
+  }
+  
+  openModal(modal);
+}
+
+function closeModuleModal() {
+  const modal = document.getElementById('module-modal');
+  closeModal(modal);
+  document.getElementById('module-form')?.reset();
+  fetchedMetadata = null;
+  if (document.getElementById('metadata-preview')) document.getElementById('metadata-preview').style.display = 'none';
+}
+
+// Sidebar toggle for mobile
+function toggleSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar) return;
+  const isVisible = sidebar.style.display !== 'none' && getComputedStyle(sidebar).display !== 'none';
+  if (window.innerWidth <= 600) {
+    sidebar.style.display = isVisible ? 'none' : 'block';
+    sidebar.style.position = isVisible ? '' : 'fixed';
+    sidebar.style.zIndex = isVisible ? '' : '1300';
+    sidebar.style.left = isVisible ? '' : '0';
+    sidebar.style.top = isVisible ? '' : '64px';
+    sidebar.style.height = isVisible ? '' : 'calc(100% - 64px)';
+    sidebar.style.boxShadow = isVisible ? '' : '0 8px 24px rgba(0,0,0,0.15)';
+  }
+}
+
+function toggleModeConfig() {
+  const mode = document.getElementById('module-mode').value;
+  const onlineConfig = document.getElementById('online-config');
+  const offlineConfig = document.getElementById('offline-config');
+
+  if (mode === 'online') {
+    onlineConfig.style.display = 'block';
+    offlineConfig.style.display = 'none';
+  } else {
+    onlineConfig.style.display = 'none';
+    offlineConfig.style.display = 'block';
+  }
+}
+
+async function fetchMetadata() {
+  const apiUrl = document.getElementById('api-list').value;
+  const headersText = document.getElementById('api-headers').value;
+
+  if (!apiUrl) {
+    showError('Please enter the List API URL');
+    return;
+  }
+
+  let headers = {};
+  if (headersText.trim()) {
+    try {
+      headers = JSON.parse(headersText);
+    } catch (error) {
+      showError('Invalid JSON in headers');
+      return;
+    }
+  }
+
+  try {
+    const result = await API.fetchApiMetadata(apiUrl, headers);
+    
+    if (result.success) {
+      fetchedMetadata = result.metadata;
+      displayMetadata(result.metadata);
+      showSuccess('Metadata fetched successfully');
+    } else {
+      showError(result.error);
+    }
+  } catch (error) {
+    console.error('Error fetching metadata:', error);
+    showError('Failed to fetch metadata');
+  }
+}
+
+function displayMetadata(metadata) {
+  const preview = document.getElementById('metadata-preview');
+  const fieldsList = document.getElementById('metadata-fields-list');
+
+  fieldsList.innerHTML = metadata.fields.map(field => 
+    `<li>${field.label} (${field.name}) - ${field.type}</li>`
+  ).join('');
+
+  preview.style.display = 'block';
+}
+
+async function saveModule() {
+  const name = document.getElementById('module-name').value;
+  const mode = document.getElementById('module-mode').value;
+
+  if (!name) {
+    showError('Please enter module name');
+    return;
+  }
+
+  const moduleData = { name, mode };
+
+  if (mode === 'online') {
+    const apiList = document.getElementById('api-list').value;
+    const apiCreate = document.getElementById('api-create').value;
+    const apiUpdate = document.getElementById('api-update').value;
+    const apiDelete = document.getElementById('api-delete').value;
+    const headersText = document.getElementById('api-headers').value;
+    const idField = document.getElementById('api-id-field').value || 'id';
+
+    if (!apiList || !apiCreate || !apiUpdate || !apiDelete) {
+      showError('Please fill all API endpoints');
+      return;
+    }
+
+    let headers = {};
+    if (headersText.trim()) {
+      try {
+        headers = JSON.parse(headersText);
+      } catch (error) {
+        showError('Invalid JSON in headers');
+        return;
+      }
+    }
+
+    moduleData.config = {
+      apiEndpoints: {
+        list: apiList,
+        create: apiCreate,
+        update: apiUpdate,
+        delete: apiDelete
+      },
+      headers,
+      idField,
+      metadata: fetchedMetadata
+    };
+  }
+
+  try {
+    let result;
+    if (currentModule && document.getElementById('module-modal-title').textContent === 'Edit Module') {
+      result = await API.updateModule(currentModule.id, moduleData);
+    } else {
+      result = await API.createModule(moduleData);
+    }
+
+    await loadModules();
+    closeModuleModal();
+    showSuccess('Module saved successfully');
+    
+    if (result.id) {
+      selectModule(result.id);
+    }
+  } catch (error) {
+    console.error('Error saving module:', error);
+    showError('Failed to save module');
+  }
+}
+
+async function editCurrentModule() {
+  if (currentModule) {
+    openModuleModal(true);
+  }
+}
+
+async function deleteCurrentModule() {
+  if (!currentModule) return;
+
+  if (confirm(`Are you sure you want to delete "${currentModule.name}"? This action cannot be undone.`)) {
+    try {
+      await API.deleteModule(currentModule.id);
+      currentModule = null;
+      await loadModules();
+      showSuccess('Module deleted successfully');
+      // Reload the page so UI/state is cleared and modules list refreshes
+      setTimeout(() => location.reload(), 300);
+    } catch (error) {
+      console.error('Error deleting module:', error);
+      showError('Failed to delete module');
+    }
+  }
+}
+
+async function refreshCurrentModule() {
+  if (currentModule) {
+    await loadModuleData();
+    showSuccess('Data refreshed');
+  }
+}
+
+// Record Management
+function openRecordModal(record = null) {
+  if (!currentModule) return;
+
+  const modal = document.getElementById('record-modal');
+  const title = document.getElementById('record-modal-title');
+  const form = document.getElementById('record-form');
+
+  currentRecord = record;
+
+  if (record) {
+    title.textContent = 'Edit Record';
+  } else {
+    title.textContent = 'Add Record';
+  }
+
+  // Get fields
+  let fields = [];
+  if (currentModule.mode === 'online' && currentModule.config.metadata) {
+    fields = currentModule.config.metadata.fields.filter(f => f.name !== currentModule.config.idField);
+  } else {
+    // Get fields from current data or config
+    const tableHead = document.getElementById('table-head');
+    if (tableHead.children.length > 0) {
+      const headers = Array.from(tableHead.children[0].children);
+      fields = headers.slice(0, -1).map(th => ({
+        name: th.textContent.toLowerCase().replace(/\s+/g, '_'),
+        label: th.textContent,
+        type: 'string'
+      })).filter(f => f.name !== 'id' && f.name !== 'created_at' && f.name !== 'updated_at');
+    } else if (currentModule.config && Array.isArray(currentModule.config.fields) && currentModule.config.fields.length > 0) {
+      // Fallback to module config fields when no table header/data
+      fields = currentModule.config.fields.map(f => ({ name: f.name, label: f.label || f.name, type: f.type || 'string' }));
+    }
+  }
+
+  // Generate form
+  form.innerHTML = fields.map(field => {
+    const value = record ? (record[field.name] || '') : '';
+    
+    switch (field.type) {
+      case 'number':
+        return `
+          <div class="form-group">
+            <label for="field-${field.name}">${field.label || field.name}</label>
+            <input type="number" id="field-${field.name}" name="${field.name}" value="${value}">
+          </div>
+        `;
+      case 'boolean':
+        return `
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="field-${field.name}" name="${field.name}" ${value ? 'checked' : ''}>
+              ${field.label || field.name}
+            </label>
+          </div>
+        `;
+      case 'date':
+        return `
+          <div class="form-group">
+            <label for="field-${field.name}">${field.label || field.name}</label>
+            <input type="date" id="field-${field.name}" name="${field.name}" value="${value}">
+          </div>
+        `;
+      default:
+        // If field name looks like a barcode/qr/scan field, include a Scan button
+        const isScanField = /(?:scan|qr|barcode|code)/i.test(field.name || '');
+        if (isScanField) {
+          return `
+            <div class="form-group">
+              <label for="field-${field.name}">${field.label || field.name}</label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input type="text" id="field-${field.name}" name="${field.name}" value="${value}" style="flex:1">
+                <button type="button" class="btn btn-sm btn-secondary scan-btn" data-field="${field.name}">Scan</button>
+              </div>
+            </div>
+          `;
+        }
+
+        return `
+          <div class="form-group">
+            <label for="field-${field.name}">${field.label || field.name}</label>
+            <input type="text" id="field-${field.name}" name="${field.name}" value="${value}">
+          </div>
+        `;
+    }
+  }).join('');
+
+  // Attach listeners to dynamically created scan buttons
+  document.querySelectorAll('.scan-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const field = e.currentTarget.dataset.field;
+      openScannerModal(field);
+    });
+  });
+
+  openModal(modal);
+}
+
+function closeRecordModal() {
+  const modal = document.getElementById('record-modal');
+  closeModal(modal);
+  currentRecord = null;
+}
+
+async function saveRecord() {
+  if (!currentModule) return;
+
+  const form = document.getElementById('record-form');
+  const formData = new FormData(form);
+  const data = {};
+
+  for (const [key, value] of formData.entries()) {
+    const input = form.querySelector(`[name="${key}"]`);
+    if (input.type === 'checkbox') {
+      data[key] = input.checked;
+    } else if (input.type === 'number') {
+      data[key] = parseFloat(value) || 0;
+    } else {
+      data[key] = value;
+    }
+  }
+
+  try {
+    let result;
+    if (currentRecord) {
+      const recordId = currentRecord.id || currentRecord[currentModule.config?.idField || 'id'];
+      if (currentModule.mode === 'online') {
+        result = await API.onlineUpdateRecord(currentModule.id, recordId, data);
+      } else {
+        result = await API.offlineUpdateRecord(currentModule.id, recordId, data);
+      }
+    } else {
+      if (currentModule.mode === 'online') {
+        result = await API.onlineCreateRecord(currentModule.id, data);
+      } else {
+        result = await API.offlineCreateRecord(currentModule.id, data);
+      }
+    }
+
+    if (result.success) {
+      closeRecordModal();
+      await loadModuleData();
+      showSuccess('Record saved successfully');
+    } else {
+      showError(result.error);
+    }
+  } catch (error) {
+    console.error('Error saving record:', error);
+    showError('Failed to save record');
+  }
+}
+
+function editRecord(record) {
+  openRecordModal(record);
+}
+
+async function deleteRecord(recordId) {
+  if (!currentModule) return;
+
+  if (confirm('Are you sure you want to delete this record?')) {
+    try {
+      let result;
+      if (currentModule.mode === 'online') {
+        result = await API.onlineDeleteRecord(currentModule.id, recordId);
+      } else {
+        result = await API.offlineDeleteRecord(currentModule.id, recordId);
+      }
+
+      if (result.success) {
+        await loadModuleData();
+        showSuccess('Record deleted successfully');
+      } else {
+        showError(result.error);
+      }
+    } catch (error) {
+      console.error('Error deleting record:', error);
+      showError('Failed to delete record');
+    }
+  }
+}
+
+// Add Field functionality
+function openAddFieldModal() {
+  if (!currentModule || currentModule.mode !== 'offline') {
+    console.info('openAddFieldModal: aborted, currentModule:', currentModule);
+    return;
+  }
+
+  // Be defensive: the form/modal may not exist in some DOM states
+  const form = document.getElementById('add-field-form');
+  const modal = document.getElementById('add-field-modal');
+  console.info('openAddFieldModal: called, currentModule:', currentModule, 'form:', !!form, 'modal:', !!modal);
+  form?.reset();
+
+  if (modal) {
+    // Normal path: use unified opener which also ensures modal is attached to body
+    openModal(modal);
+
+    // No inline fallback; rely on CSS and relocateModalsToBody to ensure visibility
+  } else {
+    console.warn('openAddFieldModal: modal element not found');
+  }
+}
+
+function closeAddFieldModal() {
+  const modal = document.getElementById('add-field-modal');
+  closeModal(modal);
+}
+
+async function saveCustomField() {
+  const fieldName = document.getElementById('field-name').value;
+  const fieldType = document.getElementById('field-type').value;
+
+  if (!fieldName) {
+    showError('Please enter field name');
+    return;
+  }
+
+  try {
+    const result = await API.offlineAddField(currentModule.id, fieldName, fieldType);
+    
+    if (result.success) {
+      closeAddFieldModal();
+      await loadModuleData();
+      showSuccess('Field added successfully');
+      // Reload the page so UI and module lists reflect the new field/schema
+      setTimeout(() => location.reload(), 300);
+    } else {
+      showError(result.error);
+    }
+  } catch (error) {
+    console.error('Error adding field:', error);
+    showError('Failed to add field');
+  }
+}
+
+// Sync Management
+async function openSyncModal() {
+  const modal = document.getElementById('sync-modal');
+  openModal(modal);
+  
+  // Load modules for sync
+  await populateSyncModules();
+  await loadSyncConfigs();
+}
+
+function closeSyncModal() {
+  closeModal(document.getElementById('sync-modal'));
+}
+
+async function populateSyncModules() {
+  const sourceSelect = document.getElementById('sync-source-module');
+  const targetSelect = document.getElementById('sync-target-module');
+
+  const options = modules.map(m => 
+    `<option value="${m.id}">${m.name} (${m.mode})</option>`
+  ).join('');
+
+  sourceSelect.innerHTML = '<option value="">Select Source Module</option>' + options;
+  targetSelect.innerHTML = '<option value="">Select Target Module</option>' + options;
+}
+
+async function loadSyncConfigs() {
+  try {
+    const result = await API.getSyncConfigs();
+    
+    if (result.success) {
+      renderSyncConfigs(result.configs);
+    }
+  } catch (error) {
+    console.error('Error loading sync configs:', error);
+  }
+}
+
+function renderSyncConfigs(configs) {
+  const container = document.getElementById('sync-configs-list');
+
+  if (!configs || configs.length === 0) {
+    container.innerHTML = '<p class="empty-state">No sync configurations yet</p>';
+    return;
+  }
+
+  container.innerHTML = configs.map(config => {
+    const sourceModule = modules.find(m => m.id === config.sourceModuleId);
+    const targetModule = modules.find(m => m.id === config.targetModuleId);
+
+    return `
+      <div class="sync-config-item">
+        <div class="sync-config-info">
+          <h4>${config.name}</h4>
+          <p>Source: ${sourceModule?.name || 'Unknown'} → Target: ${targetModule?.name || 'Unknown'}</p>
+          <p>Bidirectional: ${config.bidirectional ? 'Yes' : 'No'} | Mappings: ${config.mappings?.length || 0}</p>
+          <p style="font-size: 0.85rem; color: #999;">Last Sync: ${config.lastSyncAt ? new Date(config.lastSyncAt).toLocaleString() : 'Never'}</p>
+        </div>
+        <div class="sync-config-actions">
+          <button class="btn btn-sm btn-success" onclick="executeSync('${config.id}')">Sync Now</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function detectMappings() {
+  const sourceModuleId = document.getElementById('sync-source-module').value;
+  const targetModuleId = document.getElementById('sync-target-module').value;
+
+  if (!sourceModuleId || !targetModuleId) {
+    showError('Please select both source and target modules');
+    return;
+  }
+
+  if (sourceModuleId === targetModuleId) {
+    showError('Source and target modules must be different');
+    return;
+  }
+
+  try {
+    const result = await API.getSyncMappings(sourceModuleId, targetModuleId);
+    
+    if (result.success) {
+      renderMappings(result);
+      document.getElementById('btn-save-sync').style.display = 'inline-block';
+    } else {
+      showError(result.error);
+    }
+  } catch (error) {
+    console.error('Error detecting mappings:', error);
+    showError('Failed to detect mappings');
+  }
+}
+
+function renderMappings(mappingResult) {
+  const container = document.getElementById('mappings-container');
+  const mappingsList = document.getElementById('mappings-list');
+
+  const { sourceModule, targetModule, suggestedMappings } = mappingResult;
+
+  mappingsList.innerHTML = suggestedMappings.map((mapping, index) => `
+    <div class="mapping-item">
+      <select id="source-field-${index}" data-mapping-index="${index}">
+        ${sourceModule.fields.map(field => 
+          `<option value="${field.name}" ${field.name === mapping.sourceField ? 'selected' : ''}>
+            ${field.label || field.name}
+          </option>`
+        ).join('')}
+      </select>
+      <span class="mapping-arrow">→</span>
+      <select id="target-field-${index}" data-mapping-index="${index}">
+        ${targetModule.fields.map(field => 
+          `<option value="${field.name}" ${field.name === mapping.targetField ? 'selected' : ''}>
+            ${field.label || field.name}
+          </option>`
+        ).join('')}
+      </select>
+      <span style="font-size: 0.85rem; color: ${mapping.autoMapped ? 'green' : 'orange'};">
+        ${mapping.autoMapped ? '✓ Auto' : '⚠ Manual'}
+      </span>
+    </div>
+  `).join('');
+
+  container.style.display = 'block';
+  container.dataset.sourceModuleId = sourceModule.id;
+  container.dataset.targetModuleId = targetModule.id;
+}
+
+async function saveSyncConfig() {
+  const name = document.getElementById('sync-name').value;
+  const sourceModuleId = document.getElementById('sync-source-module').value;
+  const targetModuleId = document.getElementById('sync-target-module').value;
+  const bidirectional = document.getElementById('sync-bidirectional').checked;
+
+  if (!name || !sourceModuleId || !targetModuleId) {
+    showError('Please fill all required fields');
+    return;
+  }
+
+  // Collect mappings
+  const mappings = [];
+  const mappingItems = document.querySelectorAll('.mapping-item');
+  
+  mappingItems.forEach((item, index) => {
+    const sourceField = document.getElementById(`source-field-${index}`).value;
+    const targetField = document.getElementById(`target-field-${index}`).value;
+    
+    mappings.push({
+      sourceField,
+      targetField
+    });
+  });
+
+  if (mappings.length === 0) {
+    showError('Please detect field mappings first');
+    return;
+  }
+
+  const syncConfig = {
+    name,
+    sourceModuleId,
+    targetModuleId,
+    bidirectional,
+    mappings
+  };
+
+  try {
+    const result = await API.saveSyncConfig(syncConfig);
+    
+    if (result.success) {
+      await loadSyncConfigs();
+      switchTab('sync-list');
+      document.getElementById('sync-form')?.reset();
+      if (document.getElementById('mappings-container')) document.getElementById('mappings-container').style.display = 'none';
+      if (document.getElementById('btn-save-sync')) document.getElementById('btn-save-sync').style.display = 'none';
+      showSuccess('Sync configuration saved successfully');
+    } else {
+      showError(result.error);
+    }
+  } catch (error) {
+    console.error('Error saving sync config:', error);
+    showError('Failed to save sync configuration');
+  }
+}
+
+async function executeSync(syncConfigId) {
+  if (!confirm('Are you sure you want to execute this sync?')) return;
+
+  try {
+    showSuccess('Sync in progress...');
+    const result = await API.executeSync(syncConfigId);
+    
+    if (result.success) {
+      await loadSyncConfigs();
+      showSuccess(`Sync completed! Created: ${result.results.created}, Updated: ${result.results.updated}, Errors: ${result.results.errors.length}`);
+      
+      if (result.results.errors.length > 0) {
+        console.error('Sync errors:', result.results.errors);
+      }
+    } else {
+      showError(result.error);
+    }
+  } catch (error) {
+    console.error('Error executing sync:', error);
+    showError('Failed to execute sync');
+  }
+}
+
+// UI Helpers
+function switchTab(tabName) {
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-tab') === tabName);
+  });
+
+  document.querySelectorAll('.tab-content').forEach(content => {
+    content.classList.toggle('active', content.id === tabName);
+  });
+}
+
+function showWelcomeScreen() {
+  const welcomeEl = document.getElementById('welcome-screen');
+  const moduleViewEl = document.getElementById('module-view');
+  if (welcomeEl) welcomeEl.style.display = 'block';
+  if (moduleViewEl) moduleViewEl.style.display = 'none';
+}
+
+function showModuleView() {
+  const welcomeEl = document.getElementById('welcome-screen');
+  const moduleViewEl = document.getElementById('module-view');
+  if (welcomeEl) welcomeEl.style.display = 'none';
+  if (moduleViewEl) moduleViewEl.style.display = 'block';
+}
+
+function showError(message) {
+  // Simple alert for now, can be replaced with toast notifications
+  alert('Error: ' + message);
+}
+
+function showSuccess(message) {
+  // Simple alert for now, can be replaced with toast notifications
+  console.log('Success:', message);
+}
+
+// Web Server Management
+async function checkServerStatus() {
+  try {
+    const result = await API.getServerStatus();
+    if (result.success && result.isRunning) {
+      serverRunning = true;
+      updateServerButton(true);
+    } else {
+      serverRunning = false;
+      updateServerButton(false);
+    }
+  } catch (error) {
+    console.error('Error checking server status:', error);
+  }
+}
+
+function updateServerButton(isRunning) {
+  const btn = document.getElementById('btn-start-server');
+  if (isRunning) {
+    btn.textContent = '🌐 Server Running';
+    btn.className = 'btn btn-success';
+    btn.style.cursor = 'pointer';
+  } else {
+    btn.textContent = '🌐 Start Server';
+    btn.className = 'btn btn-success';
+    btn.style.cursor = 'pointer';
+  }
+}
+
+async function startWebServer() {
+  if (serverRunning) {
+    // Server already running, show modal
+    await showServerModal();
+    return;
+  }
+
+  try {
+    const btn = document.getElementById('btn-start-server');
+    btn.textContent = '⏳ Starting...';
+    btn.disabled = true;
+
+    // If user has selected a preferred IP in the modal, pass it to the backend
+    const ipSelect = document.getElementById('server-ip-select');
+    const selectedIp = ipSelect && ipSelect.value ? ipSelect.value : null;
+    // If TLS fields populated in modal, apply before starting
+    try {
+      if (selectedKeyPath && selectedCertPath) {
+        await API.setWebServerTLS({ keyPath: selectedKeyPath, certPath: selectedCertPath });
+      }
+    } catch (e) {
+      console.warn('Failed to apply TLS files before start:', e);
+    }
+
+    const result = await API.startWebServer(selectedIp);
+    
+    if (result.success) {
+      serverRunning = true;
+      updateServerButton(true);
+      await showServerModal(result);
+      showSuccess('Web server started successfully!');
+    } else {
+      showError(result.error || 'Failed to start server');
+      updateServerButton(false);
+    }
+  } catch (error) {
+    console.error('Error starting server:', error);
+    showError('Failed to start server');
+    updateServerButton(false);
+  } finally {
+    document.getElementById('btn-start-server').disabled = false;
+  }
+}
+
+async function stopWebServer() {
+  try {
+    const result = await API.stopWebServer();
+    
+    if (result.success) {
+      serverRunning = false;
+      updateServerButton(false);
+      closeServerModal();
+      showSuccess('Web server stopped');
+    } else {
+      showError(result.error || 'Failed to stop server');
+    }
+  } catch (error) {
+    console.error('Error stopping server:', error);
+    showError('Failed to stop server');
+  }
+}
+
+async function showServerModal(serverInfo = null) {
+  const modal = document.getElementById('server-modal');
+  
+  // Get server info if not provided
+  if (!serverInfo) {
+    const result = await API.getServerStatus();
+    if (result.success && result.isRunning) {
+      serverInfo = result;
+      // Generate QR code
+      // server already running; serverInfo may include qrCode
+      if (!serverInfo.qrCode) {
+        // ensure QR present by generating via start (pass no-op)
+        const qrResult = await API.startWebServer();
+        if (qrResult.success && qrResult.qrCode) {
+          serverInfo.qrCode = qrResult.qrCode;
+        }
+      }
+    } else {
+      showError('Server is not running');
+      return;
+    }
+  }
+
+  // Populate IP select with local IPv4 addresses
+  try {
+    const ipsResult = await API.getLocalIPs();
+    const ipSelect = document.getElementById('server-ip-select');
+    ipSelect.innerHTML = '';
+
+    if (ipsResult && ipsResult.success && Array.isArray(ipsResult.ips)) {
+      const ips = ipsResult.ips;
+      // Group by type
+      const wifi = ips.filter(i => i.type === 'wifi');
+      const lan = ips.filter(i => i.type === 'lan');
+      const other = ips.filter(i => i.type === 'other');
+
+      const addOptions = (list, label) => {
+        if (list.length === 0) return;
+        const group = document.createElement('optgroup');
+        group.label = label;
+        list.forEach(item => {
+          const opt = document.createElement('option');
+          opt.value = item.address;
+          opt.textContent = `${item.interface} — ${item.address}`;
+          group.appendChild(opt);
+        });
+        ipSelect.appendChild(group);
+      };
+
+      addOptions(wifi, 'Wi-Fi');
+      addOptions(lan, 'LAN');
+      addOptions(other, 'Other');
+
+      // Preselect the serverInfo.ipAddress if present
+      if (serverInfo.ipAddress) {
+        ipSelect.value = serverInfo.ipAddress;
+      }
+    }
+  } catch (err) {
+    console.error('Error populating IP select:', err);
+  }
+
+    // When user changes selected IP, regenerate URL and QR for the selected address
+    try {
+      const ipSelectEl = document.getElementById('server-ip-select');
+      ipSelectEl.addEventListener('change', async (e) => {
+        const selected = e.target.value;
+        if (!selected) return;
+        try {
+          const newInfo = await API.regenerateServerInfo(selected);
+          if (newInfo && newInfo.success) {
+            document.getElementById('server-url').value = newInfo.url || document.getElementById('server-url').value;
+            document.getElementById('server-ip').textContent = newInfo.ipAddress || selected;
+            document.getElementById('server-port').textContent = newInfo.port || document.getElementById('server-port').textContent;
+            if (newInfo.qrCode) document.getElementById('qr-code-image').src = newInfo.qrCode;
+          } else {
+            console.error('Failed to regenerate server info:', newInfo.error);
+          }
+        } catch (err) {
+          console.error('Error regenerating server info:', err);
+        }
+      });
+    } catch (err) {
+      // ignore if select not found
+    }
+
+  // Populate modal with server info
+  document.getElementById('server-url').value = serverInfo.url;
+  document.getElementById('server-ip').textContent = serverInfo.ipAddress;
+  document.getElementById('server-port').textContent = serverInfo.port;
+  
+  if (serverInfo.qrCode) {
+    document.getElementById('qr-code-image').src = serverInfo.qrCode;
+  }
+
+  // TLS status update
+  try {
+    // Ask backend for status via getServerStatus
+    const status = await API.getServerStatus();
+    if (status && status.isRunning && status.url && status.url.startsWith('https')) {
+      updateTLSStatus(true);
+    } else {
+      updateTLSStatus(false, 'TLS: unknown');
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  // Wire TLS UI buttons
+  try {
+    const keyBrowse = document.getElementById('btn-browse-key');
+    const certBrowse = document.getElementById('btn-browse-cert');
+    const keyDisplay = document.getElementById('tls-key-display');
+    const certDisplay = document.getElementById('tls-cert-display');
+    const applyBtn = document.getElementById('btn-apply-tls');
+    const regenBtn = document.getElementById('btn-regenerate-tls');
+    const tlsStatusEl = document.getElementById('tls-status');
+
+    let selectedKeyPath = null;
+    let selectedCertPath = null;
+
+    keyBrowse.addEventListener('click', async () => {
+      try {
+        const result = await API.showOpenDialog({
+          title: 'Select TLS Private Key File',
+          filters: [{ name: 'PEM Files', extensions: ['pem', 'key'] }],
+          properties: ['openFile']
+        });
+        if (!result.canceled && result.filePaths && result.filePaths[0]) {
+          selectedKeyPath = result.filePaths[0];
+          keyDisplay.textContent = selectedKeyPath;
+        }
+      } catch (e) {
+        console.error('Error selecting key file:', e);
+      }
+    });
+
+    certBrowse.addEventListener('click', async () => {
+      try {
+        const result = await API.showOpenDialog({
+          title: 'Select TLS Certificate File',
+          filters: [{ name: 'PEM Files', extensions: ['pem', 'crt', 'cert'] }],
+          properties: ['openFile']
+        });
+        if (!result.canceled && result.filePaths && result.filePaths[0]) {
+          selectedCertPath = result.filePaths[0];
+          certDisplay.textContent = selectedCertPath;
+        }
+      } catch (e) {
+        console.error('Error selecting cert file:', e);
+      }
+    });
+
+    applyBtn.addEventListener('click', async () => {
+      try {
+        if (!selectedKeyPath || !selectedCertPath) {
+          showError('Select both key and cert files before applying');
+          return;
+        }
+        const res = await API.setWebServerTLS({ keyPath: selectedKeyPath, certPath: selectedCertPath });
+        if (res && res.success) {
+          updateTLSStatus(true);
+          showSuccess('TLS files applied');
+
+          // If server is running, restart it to apply TLS changes
+          if (serverRunning) {
+            try {
+              await API.stopWebServer();
+              const startResult = await API.startWebServer();
+              if (startResult.success) {
+                // Update modal UI with new URL and QR
+                document.getElementById('server-url').value = startResult.url;
+                document.getElementById('server-ip').textContent = startResult.ipAddress;
+                document.getElementById('server-port').textContent = startResult.port;
+                if (startResult.qrCode) {
+                  document.getElementById('qr-code-image').src = startResult.qrCode;
+                }
+                showSuccess('Server restarted with TLS');
+              } else {
+                showError('Failed to restart server with TLS: ' + startResult.error);
+                serverRunning = false;
+                updateServerButton(false);
+              }
+            } catch (e) {
+              console.error('Error restarting server:', e);
+              showError('Failed to restart server with TLS');
+              serverRunning = false;
+              updateServerButton(false);
+            }
+          }
+        } else {
+          showError(res.error || 'Failed to apply TLS files');
+        }
+      } catch (e) {
+        console.error('Error applying TLS files:', e);
+        showError('Failed to apply TLS files');
+      }
+    });
+
+    regenBtn.addEventListener('click', async () => {
+      try {
+        regenBtn.disabled = true;
+        regenBtn.textContent = '⏳ Generating...';
+        const res = await API.regenerateWebServerTLS();
+        if (res && res.success) {
+          keyDisplay.textContent = res.keyPath;
+          certDisplay.textContent = res.certPath;
+          selectedKeyPath = res.keyPath;
+          selectedCertPath = res.certPath;
+          updateTLSStatus(true);
+          showSuccess('Self-signed certs generated');
+
+          // If server is running, restart it to apply new TLS certs
+          if (serverRunning) {
+            try {
+              await API.stopWebServer();
+              const startResult = await API.startWebServer();
+              if (startResult.success) {
+                // Update modal UI with new URL and QR
+                document.getElementById('server-url').value = startResult.url;
+                document.getElementById('server-ip').textContent = startResult.ipAddress;
+                document.getElementById('server-port').textContent = startResult.port;
+                if (startResult.qrCode) {
+                  document.getElementById('qr-code-image').src = startResult.qrCode;
+                }
+                showSuccess('Server restarted with new TLS certs');
+              } else {
+                showError('Failed to restart server with new TLS: ' + startResult.error);
+                serverRunning = false;
+                updateServerButton(false);
+              }
+            } catch (e) {
+              console.error('Error restarting server:', e);
+              showError('Failed to restart server with new TLS');
+              serverRunning = false;
+              updateServerButton(false);
+            }
+          }
+        } else {
+          showError(res.error || 'Failed to generate certs');
+        }
+      } catch (e) {
+        console.error('Error regenerating TLS:', e);
+        showError('Failed to regenerate TLS');
+      } finally {
+        regenBtn.disabled = false;
+        regenBtn.textContent = 'Regenerate Self-Signed';
+      }
+    });
+
+    const downloadCABtn = document.getElementById('btn-download-ca');
+    downloadCABtn.addEventListener('click', async () => {
+      try {
+        const result = await API.getCACert();
+        if (result && result.success && result.cert) {
+          // Create a blob and download
+          const blob = new Blob([result.cert], { type: 'application/x-pem-file' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'billion-desktop-ca.pem';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          showSuccess('CA certificate downloaded. Import it into your browser/OS trust store.');
+        } else {
+          showError(result.error || 'Failed to get CA certificate');
+        }
+      } catch (e) {
+        console.error('Error downloading CA cert:', e);
+        showError('Failed to download CA certificate');
+      }
+    });
+  } catch (e) {
+    // ignore UI wiring failures
+  }
+
+  openModal(modal);
+}
+
+function closeServerModal() {
+  closeModal(document.getElementById('server-modal'));
+}
+
+function openSettingsModal() {
+  openModal(document.getElementById('settings-modal'));
+}
+
+function closeSettingsModal() {
+  closeModal(document.getElementById('settings-modal'));
+}
+
+async function copyServerUrl() {
+  const urlInput = document.getElementById('server-url');
+  urlInput.select();
+  
+  try {
+    await navigator.clipboard.writeText(urlInput.value);
+    const btn = document.getElementById('btn-copy-url');
+    const originalText = btn.textContent;
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => {
+      btn.textContent = originalText;
+    }, 2000);
+  } catch (error) {
+    console.error('Failed to copy:', error);
+    // Fallback for older browsers
+    document.execCommand('copy');
+  }
+}
+
