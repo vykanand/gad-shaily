@@ -872,6 +872,10 @@
                   } catch (e) {}
                   // repopulate inputs from the newly loaded master row
                   settings.fields.forEach((field) => {
+                    try {
+                      if (typeof window.hideFailureRecordBox === "function")
+                        window.hideFailureRecordBox();
+                    } catch (e) {}
                     const input = document.getElementById(field.id);
                     if (input) {
                       input.value =
@@ -1143,6 +1147,438 @@
           row.appendChild(input);
           inputSection.insertBefore(row, scanByRow);
         });
+      }
+
+      // Render a failure record box at the bottom of the page showing headers/values and excel row index
+      function renderFailureRecordBox(data) {
+        try {
+          if (!data) return;
+          // data: { excelRowIndex, mergedValues, excelRowValues, inputs, scannedRaw, currentField }
+          const existing = document.getElementById("failure-record-box");
+          let container = existing;
+          if (!container) {
+            container = document.createElement("div");
+            container.id = "failure-record-box";
+            // styles
+            container.style.position = "fixed";
+            container.style.left = "10px";
+            container.style.right = "10px";
+            container.style.bottom = "10px";
+            container.style.background =
+              "linear-gradient(180deg, #ff5858, #c62828)";
+            container.style.color = "#fff";
+            container.style.padding = "12px";
+            container.style.borderRadius = "8px";
+            container.style.boxShadow = "0 8px 30px rgba(0,0,0,0.5)";
+            container.style.zIndex = 9998;
+            container.style.maxHeight = "260px";
+            container.style.overflow = "auto";
+            container.style.fontSize = "13px";
+            container.style.lineHeight = "1.3";
+            // add close control
+            const closeBtn = document.createElement("button");
+            closeBtn.textContent = "✕";
+            closeBtn.style.position = "absolute";
+            closeBtn.style.top = "6px";
+            closeBtn.style.right = "10px";
+            closeBtn.style.background = "transparent";
+            closeBtn.style.border = "none";
+            closeBtn.style.color = "#fff";
+            closeBtn.style.fontSize = "16px";
+            closeBtn.style.cursor = "pointer";
+            closeBtn.onclick = hideFailureRecordBox;
+            container.appendChild(closeBtn);
+            document.body.appendChild(container);
+          }
+
+          const headerCols = (settings.fields || []).map((f) => ({
+            id: f.id,
+            header: f.header || f.label || f.id,
+            label: f.label || f.id,
+          }));
+
+          // Build table
+          // Compute display Excel row number (masterRawRows is zero-based, Excel rows start at 1 and have header row)
+          let displayExcelRow = "";
+          try {
+            // Treat negative indexes as unresolved and attempt best-effort lookup
+            let rowIdx =
+              typeof data.excelRowIndex === "number" && data.excelRowIndex >= 0
+                ? data.excelRowIndex
+                : null;
+            if (rowIdx === null) {
+              // Best-effort: try to locate in loaded masterRawRows using excelRowValues or mergedValues
+              const candidates = data.excelRowValues || data.mergedValues || {};
+              if (
+                Array.isArray(window.masterRawRows) &&
+                (headerInfos || []).length > 0
+              ) {
+                for (let i = 0; i < window.masterRawRows.length; i++) {
+                  const rr = window.masterRawRows[i] || [];
+                  let found = false;
+                  for (const hi of headerInfos || []) {
+                    try {
+                      const expectedVal =
+                        candidates[hi.name] || candidates[hi.norm] || "";
+                      if (!expectedVal) continue;
+                      const colIndex = headerInfos.indexOf(hi);
+                      const cellVal =
+                        rr[colIndex] !== undefined && rr[colIndex] !== null
+                          ? String(rr[colIndex]).trim()
+                          : "";
+                      if (
+                        cellVal &&
+                        String(cellVal) === String(expectedVal).trim()
+                      ) {
+                        found = true;
+                        break;
+                      }
+                    } catch (e) {}
+                  }
+                  if (found) {
+                    rowIdx = i;
+                    break;
+                  }
+                }
+              }
+            }
+            if (typeof rowIdx === "number" && rowIdx >= 0)
+              displayExcelRow = String(rowIdx + 2);
+            // +1 for 1-based, +1 for header row
+            else displayExcelRow = "";
+          } catch (e) {
+            displayExcelRow = "";
+          }
+
+          // Display header with bracketed Excel row number when available
+          const headerDisplay = displayExcelRow
+            ? `Failed to scan record - Excel row number - (${displayExcelRow})`
+            : `Failed to scan record - Excel row number - (unknown)`;
+          let html = `<div style="font-weight:700; margin-bottom:8px;">${headerDisplay}</div>`;
+          html +=
+            '<div style="overflow:auto"><table style="width:100%; border-collapse:collapse;"> <thead><tr>';
+          headerCols.forEach((hc) => {
+            html += `<th style="text-align:left; padding:6px 8px; border-bottom:1px solid rgba(255,255,255,0.15);">${hc.header}</th>`;
+          });
+          html +=
+            '<th style="text-align:left; padding:6px 8px; border-bottom:1px solid rgba(255,255,255,0.15);">scan-by</th>';
+          html +=
+            '<th style="text-align:left; padding:6px 8px; border-bottom:1px solid rgba(255,255,255,0.15);">Scanned Code</th>';
+          html +=
+            '<th style="text-align:left; padding:6px 8px; border-bottom:1px solid rgba(255,255,255,0.15);">Status</th>';
+          html += "</tr></thead><tbody><tr>";
+
+          // For each header column, try mergedValues[label] -> mergedValues[header] -> excelRowValues[header] -> inputs[label]
+          const merged = data.mergedValues || {};
+          const excelVals = data.excelRowValues || {};
+          const inputs = data.inputs || {};
+          headerCols.forEach((hc) => {
+            let v = "";
+            try {
+              if (merged.hasOwnProperty(hc.label)) v = merged[hc.label];
+              else if (merged.hasOwnProperty(hc.header)) v = merged[hc.header];
+              else if (merged.hasOwnProperty(hc.id)) v = merged[hc.id];
+              else if (excelVals.hasOwnProperty(hc.header))
+                v = excelVals[hc.header];
+              else if (excelVals.hasOwnProperty(hc.label))
+                v = excelVals[hc.label];
+              else if (inputs.hasOwnProperty(hc.label)) v = inputs[hc.label];
+              else v = "";
+            } catch (e) {
+              v = "";
+            }
+            // If this column corresponds to the failed/current field, apply a high-contrast highlight
+            let cellStyle =
+              "padding:6px 8px; border-top:1px solid rgba(255,255,255,0.06);";
+            let cellAttrs = "";
+            try {
+              if (
+                data &&
+                data.currentField &&
+                String(data.currentField) === String(hc.id)
+              ) {
+                // High-contrast highlight: light yellow background with dark text for visibility inside the red box
+                cellStyle +=
+                  " background:#fff59d; color:#000; font-weight:700; border-radius:4px;";
+                cellAttrs = ` data-unmatched-field="1"`;
+              }
+            } catch (e) {}
+            html += `<td${cellAttrs} style="${cellStyle}">${String(
+              v || ""
+            )}</td>`;
+          });
+
+          // scan-by, scanned code, status
+          const scanBy =
+            (data.mergedValues && data.mergedValues["scan-by"]) ||
+            (document.getElementById("scan-by")
+              ? document.getElementById("scan-by").value
+              : "") ||
+            "";
+          const scanned = data.scannedRaw || "";
+          const status = "NOT_MATCHED";
+          html += `<td style="padding:6px 8px; border-top:1px solid rgba(255,255,255,0.06);">${scanBy}</td>`;
+          html += `<td style="padding:6px 8px; border-top:1px solid rgba(255,255,255,0.06);">${scanned}</td>`;
+          html += `<td style="padding:6px 8px; border-top:1px solid rgba(255,255,255,0.06);">${status}</td>`;
+
+          html += "</tr></tbody></table></div>";
+
+          // Add NOT_MATCH diagnostic block showing expected vs scanned raw values and matched column info
+          try {
+            const expectedRaw = data.expectedRaw || "";
+            const scannedRawDiag = data.scannedRaw || "";
+            const expectedNorm = (function (s) {
+              try {
+                return String(s || "")
+                  .normalize("NFKC")
+                  .trim();
+              } catch (e) {
+                return String(s || "");
+              }
+            })(expectedRaw);
+            const scannedNorm = (function (s) {
+              try {
+                return String(s || "")
+                  .normalize("NFKC")
+                  .trim();
+              } catch (e) {
+                return String(s || "");
+              }
+            })(scannedRawDiag);
+
+            // determine matched header/column for expected value
+            let matchedHeader = "";
+            let matchedCol = "";
+            try {
+              const expTrim = String(expectedRaw || "").trim();
+              if (expTrim) {
+                for (const hc of headerCols) {
+                  try {
+                    const v = excelVals[hc.header] || merged[hc.header] || "";
+                    if (String(v || "").trim() === expTrim) {
+                      matchedHeader = hc.header || "";
+                      break;
+                    }
+                  } catch (e) {}
+                }
+                if (!matchedHeader) {
+                  const normExp = (function (s) {
+                    try {
+                      return String(s || "")
+                        .normalize("NFKC")
+                        .replace(/\s+/g, " ")
+                        .trim();
+                    } catch (e) {
+                      return String(s || "");
+                    }
+                  })(expTrim);
+                  for (const hi of headerInfos || []) {
+                    try {
+                      const v = excelVals[hi.name] || merged[hi.name] || "";
+                      const vNorm = String(v || "").normalize
+                        ? String(v || "")
+                            .normalize("NFKC")
+                            .replace(/\s+/g, " ")
+                            .trim()
+                        : String(v || "");
+                      if (vNorm === normExp) {
+                        matchedHeader = hi.name || "";
+                        matchedCol = hi.col || "";
+                        break;
+                      }
+                    } catch (e) {}
+                  }
+                } else {
+                  const foundHi = (headerInfos || []).find(
+                    (h) =>
+                      h.name === matchedHeader ||
+                      h.norm === normalizeHeader(matchedHeader)
+                  );
+                  if (foundHi) matchedCol = foundHi.col || "";
+                }
+              }
+            } catch (e) {}
+
+            html += `<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.08);font-size:12px;color:#fff;">`;
+            html += `<div style="font-weight:700; margin-bottom:6px;">NOT_MATCH Diagnostic</div>`;
+            html += `<div style="display:flex;gap:12px;flex-wrap:wrap;"><div style="flex:1"><div style="opacity:0.9;font-weight:600">Expected (raw)</div><div style="margin-top:4px">${escapeHtml(
+              String(expectedRaw || "")
+            )}</div></div>`;
+            html += `<div style="flex:1"><div style="opacity:0.9;font-weight:600">Scanned (raw)</div><div style="margin-top:4px">${escapeHtml(
+              String(scannedRawDiag || "")
+            )}</div></div></div>`;
+            html += `<div style="margin-top:6px;opacity:0.85;font-size:11px">Normalized Expected: ${escapeHtml(
+              expectedNorm
+            )}</div>`;
+            html += `<div style="opacity:0.85;font-size:11px">Normalized Scanned: ${escapeHtml(
+              scannedNorm
+            )}</div>`;
+            html += `<div style="margin-top:6px;font-size:12px;font-weight:700">Matched Column: ${escapeHtml(
+              matchedHeader || "—"
+            )} ${matchedCol ? "(" + escapeHtml(matchedCol) + ")" : ""}</div>`;
+            html += `</div>`;
+          } catch (e) {}
+
+          container.innerHTML = html;
+          // store last failure context so successful re-scan of the same row can clear it
+          try {
+            window._lastFailureRecord = window._lastFailureRecord || {};
+            window._lastFailureRecord.excelRowIndex =
+              typeof rowIdx === "number" && rowIdx >= 0 ? rowIdx : null;
+            try {
+              const primaryId =
+                (settings &&
+                  settings.primaryFields &&
+                  settings.primaryFields[0]) ||
+                (settings &&
+                  settings.fields &&
+                  settings.fields[0] &&
+                  settings.fields[0].id) ||
+                null;
+              let primaryHeader = "";
+              if (primaryId) {
+                const pf = (settings.fields || []).find(
+                  (ff) => ff.id === primaryId
+                );
+                primaryHeader = (pf && (pf.header || pf.label || pf.id)) || "";
+              }
+              const primaryVal =
+                (merged && (merged[primaryHeader] || merged[primaryId])) ||
+                (excelVals &&
+                  (excelVals[primaryHeader] || excelVals[primaryId])) ||
+                "";
+              window._lastFailureRecord.primaryValue = primaryVal || null;
+            } catch (e) {
+              window._lastFailureRecord.primaryValue = null;
+            }
+            window._lastFailureRecord.currentField =
+              data && data.currentField ? data.currentField : null;
+          } catch (e) {}
+          // re-append close button
+          const closeBtn2 = document.createElement("button");
+          closeBtn2.textContent = "✕";
+          closeBtn2.style.position = "absolute";
+          closeBtn2.style.top = "6px";
+          closeBtn2.style.right = "10px";
+          closeBtn2.style.background = "transparent";
+          closeBtn2.style.border = "none";
+          closeBtn2.style.color = "#fff";
+          closeBtn2.style.fontSize = "16px";
+          closeBtn2.style.cursor = "pointer";
+          closeBtn2.onclick = hideFailureRecordBox;
+          container.appendChild(closeBtn2);
+        } catch (e) {
+          console.error("renderFailureRecordBox error", e);
+        }
+      }
+
+      function hideFailureRecordBox() {
+        try {
+          const el = document.getElementById("failure-record-box");
+          if (el && el.parentNode) el.parentNode.removeChild(el);
+          try {
+            if (window._lastFailureRecord) window._lastFailureRecord = null;
+          } catch (e) {}
+        } catch (e) {}
+      }
+
+      // Try to clear the failure box if the current selection/scan corresponds to the last failure
+      function tryClearFailureBoxForCurrentScan() {
+        try {
+          const last = window._lastFailureRecord || null;
+          if (!last) return false;
+
+          // Resolve current selection primary value and master row index
+          const pid =
+            (settings && settings.primaryFields && settings.primaryFields[0]) ||
+            (settings &&
+              settings.fields &&
+              settings.fields[0] &&
+              settings.fields[0].id) ||
+            null;
+          let currentPrimary = null;
+          let currentRowIdx = null;
+
+          try {
+            if (currentSelectedRow) {
+              if (Array.isArray(currentSelectedRow)) {
+                currentRowIdx = Array.isArray(masterRawRows)
+                  ? masterRawRows.findIndex((r) => r === currentSelectedRow)
+                  : null;
+                if (currentRowIdx === -1) currentRowIdx = null;
+                if (pid)
+                  currentPrimary =
+                    getValueFromRow(currentSelectedRow, pid) || null;
+              } else {
+                if (pid) {
+                  currentPrimary =
+                    getValueFromRow(currentSelectedRow, pid) || null;
+                  if (Array.isArray(masterRawRows)) {
+                    currentRowIdx = masterRawRows.findIndex((r) => {
+                      try {
+                        return (
+                          (typeof getValueFromRow === "function"
+                            ? getValueFromRow(r, pid)
+                            : "") === currentPrimary
+                        );
+                      } catch (e) {
+                        return false;
+                      }
+                    });
+                    if (currentRowIdx === -1) currentRowIdx = null;
+                  }
+                }
+              }
+            } else if (pid) {
+              // fallback: read primary from input DOM
+              const inp = document.getElementById(pid);
+              if (inp) {
+                currentPrimary = inp.value || null;
+                if (currentPrimary && Array.isArray(masterRawRows)) {
+                  currentRowIdx = masterRawRows.findIndex((r) => {
+                    try {
+                      return (
+                        (typeof getValueFromRow === "function"
+                          ? getValueFromRow(r, pid)
+                          : "") === currentPrimary
+                      );
+                    } catch (e) {
+                      return false;
+                    }
+                  });
+                  if (currentRowIdx === -1) currentRowIdx = null;
+                }
+              }
+            }
+          } catch (e) {}
+
+          // Compare to last failure: prefer excelRowIndex when present, otherwise compare primaryValue
+          if (
+            typeof last.excelRowIndex === "number" &&
+            last.excelRowIndex >= 0 &&
+            typeof currentRowIdx === "number"
+          ) {
+            if (last.excelRowIndex === currentRowIdx) {
+              hideFailureRecordBox();
+              return true;
+            }
+          }
+          if (last.primaryValue && currentPrimary) {
+            try {
+              if (
+                String(last.primaryValue).trim() ===
+                String(currentPrimary).trim()
+              ) {
+                hideFailureRecordBox();
+                return true;
+              }
+            } catch (e) {}
+          }
+
+          return false;
+        } catch (e) {
+          return false;
+        }
       }
 
       // Helper: get value from master row using field ID
@@ -1921,6 +2357,86 @@
 
           // Save to Excel in real-time
           if (isMatch) {
+            // Try to clear failure box for current successful scan (idempotent)
+            try {
+              tryClearFailureBoxForCurrentScan();
+            } catch (e) {}
+            // Determine whether this successful scan corresponds to the last shown failure
+            try {
+              const last = window._lastFailureRecord || null;
+              let matchedRowIdx = null;
+              let matchedPrimaryVal = null;
+              try {
+                // If a currentSelectedRow is present, try to resolve its index in masterRawRows
+                if (currentSelectedRow) {
+                  if (Array.isArray(currentSelectedRow)) {
+                    matchedRowIdx =
+                      (Array.isArray(masterRawRows) &&
+                        masterRawRows.findIndex(
+                          (r) => r === currentSelectedRow
+                        )) ||
+                      null;
+                  } else {
+                    // object: try by primary value
+                    const pid =
+                      (settings &&
+                        settings.primaryFields &&
+                        settings.primaryFields[0]) ||
+                      (settings &&
+                        settings.fields &&
+                        settings.fields[0] &&
+                        settings.fields[0].id) ||
+                      null;
+                    if (pid) {
+                      matchedPrimaryVal =
+                        getValueFromRow(currentSelectedRow, pid) || "";
+                      if (Array.isArray(masterRawRows)) {
+                        matchedRowIdx = masterRawRows.findIndex((r) => {
+                          try {
+                            return (
+                              (typeof getValueFromRow === "function"
+                                ? getValueFromRow(r, pid)
+                                : "") === matchedPrimaryVal
+                            );
+                          } catch (e) {
+                            return false;
+                          }
+                        });
+                        if (matchedRowIdx === -1) matchedRowIdx = null;
+                      }
+                    }
+                  }
+                }
+              } catch (e) {}
+
+              const lastMatches = (function () {
+                try {
+                  if (!last) return false;
+                  if (
+                    typeof last.excelRowIndex === "number" &&
+                    last.excelRowIndex >= 0 &&
+                    typeof matchedRowIdx === "number"
+                  ) {
+                    return last.excelRowIndex === matchedRowIdx;
+                  }
+                  if (last.primaryValue && matchedPrimaryVal) {
+                    return (
+                      String(last.primaryValue) === String(matchedPrimaryVal)
+                    );
+                  }
+                  return false;
+                } catch (e) {
+                  return false;
+                }
+              })();
+
+              if (lastMatches) {
+                try {
+                  tryClearFailureBoxForCurrentScan();
+                } catch (e) {}
+              }
+            } catch (e) {}
+
             console.log("Successful scan - saving to Excel in real-time");
             saveScanLogRealtime(logEntry);
           } else {
@@ -1952,6 +2468,9 @@
                 typeof window.scanManager._showReadyState === "function"
               ) {
                 window.scanManager._showReadyState();
+                try {
+                  tryClearFailureBoxForCurrentScan();
+                } catch (e) {}
               } else {
                 document.getElementById("pass-status").textContent = "READY";
                 document
@@ -1971,6 +2490,10 @@
                 document
                   .getElementById("part-code-status-value")
                   .classList.remove("ok");
+                try {
+                  if (typeof window.hideFailureRecordBox === "function")
+                    window.hideFailureRecordBox();
+                } catch (e) {}
               }
             }, 1000);
 

@@ -879,6 +879,13 @@
                 try {
                   console.info && console.info('scanManager: ALL_FIELDS_MATCHED - sequence:', this.scanSession._scanSequence || []);
                   console.info && console.info('scanManager: finalLog saved', finalLog);
+                  try {
+                    if (typeof window.tryClearFailureBoxForCurrentScan === 'function') {
+                      try { window.tryClearFailureBoxForCurrentScan(); } catch(e) {}
+                    } else if (typeof window.hideFailureRecordBox === 'function') {
+                      try { window.hideFailureRecordBox(); } catch(e) {}
+                    }
+                  } catch (e) {}
                 } catch (e) {}
               } catch (e) {
                 console.error('final save failed', e);
@@ -1003,6 +1010,21 @@
                 excelRowValues: excelMap,
                 mergedValues: mergedMap
               });
+              try {
+                if (typeof window.renderFailureRecordBox === 'function') {
+                  try {
+                    window.renderFailureRecordBox({
+                      excelRowIndex: excelRowIndex,
+                      mergedValues: mergedMap,
+                      excelRowValues: excelMap,
+                      inputs: inputsMap,
+                      scannedRaw: scannedVal,
+                      currentField: currentField,
+                      expectedRaw: expectedVal
+                    });
+                  } catch (e) {}
+                }
+              } catch (e) {}
               if (!expectedVal) {
                 console.error('scanManager: NOT_MATCH reason=EMPTY_EXPECTED for field', currentField);
               } else if (expectedNorm === scannedNorm) {
