@@ -844,6 +844,19 @@
             style="word-break: break-all; margin-bottom: 8px; font-weight: 700"
           ></div>
           <div id="server-qr" style="margin-bottom: 8px"></div>
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              margin-bottom: 8px;
+            "
+          >
+            <input type="checkbox" id="server-autostart" />
+            <label for="server-autostart" style="font-size: 13px"
+              >Auto-start server on app launch</label
+            >
+          </div>
           <div style="display: flex; gap: 8px">
             <button id="btn-download-ca" style="padding: 8px">
               Download CA
@@ -876,12 +889,23 @@
               const urlEl = document.getElementById("server-url");
               const qrEl = document.getElementById("server-qr");
               const downloadCa = document.getElementById("btn-download-ca");
+              const autostartCheckbox =
+                document.getElementById("server-autostart");
 
               if (!btn) return;
 
               async function refreshStatus() {
                 try {
                   const st = await ipcRenderer.invoke("get-server-status");
+                  // also refresh auto-start setting
+                  try {
+                    const cfg = await ipcRenderer.invoke(
+                      "get-web-server-config"
+                    );
+                    if (cfg && cfg.success && cfg.config && autostartCheckbox) {
+                      autostartCheckbox.checked = !!cfg.config.autoStart;
+                    }
+                  } catch (e) {}
                   if (st && st.isRunning) {
                     if (statusText) statusText.textContent = "Server running";
                     if (startStop) startStop.textContent = "Stop";
@@ -923,6 +947,26 @@
                       // Auto-select the first (preferred) address
                       if (idx === 0) selectIp.value = ip.address;
                     });
+
+                    // Try to restore previously saved displayAddress if present
+                    try {
+                      const cfg = await ipcRenderer.invoke(
+                        "get-web-server-config"
+                      );
+                      if (
+                        cfg &&
+                        cfg.success &&
+                        cfg.config &&
+                        cfg.config.displayAddress
+                      ) {
+                        const saved = cfg.config.displayAddress;
+                        // If an option with the saved address exists, select it
+                        const opt = Array.from(selectIp.options).find(
+                          (o) => o.value === saved
+                        );
+                        if (opt) selectIp.value = saved;
+                      }
+                    } catch (e) {}
                   }
                 } catch (e) {
                   console.error(e);
@@ -943,6 +987,20 @@
                 typeof refreshIps.addEventListener === "function"
               )
                 refreshIps.addEventListener("click", refreshIpsList);
+
+              // Wire autostart checkbox change to persist setting
+              try {
+                if (autostartCheckbox) {
+                  autostartCheckbox.addEventListener("change", async (ev) => {
+                    try {
+                      const v = !!autostartCheckbox.checked;
+                      await ipcRenderer.invoke("set-web-server-autostart", v);
+                    } catch (e) {
+                      console.error(e);
+                    }
+                  });
+                }
+              } catch (e) {}
 
               if (startStop)
                 startStop.addEventListener("click", async () => {

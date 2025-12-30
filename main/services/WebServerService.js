@@ -28,6 +28,7 @@ class WebServerService {
       certPath: null,
       passphrase: null
     };
+    this.autoStart = false;
 
     this.configFile = path.join(app.getPath('userData'), 'data', 'server-config.json');
 
@@ -41,6 +42,7 @@ class WebServerService {
           const parsed = JSON.parse(raw);
           if (parsed && parsed.displayAddress) this.displayAddress = parsed.displayAddress;
           if (parsed && parsed.port) this.port = parsed.port;
+          if (parsed && typeof parsed.autoStart !== 'undefined') this.autoStart = !!parsed.autoStart;
           if (parsed && parsed.tls) {
             this.tls = { ...this.tls, ...parsed.tls };
             if (this.tls.keyPath && this.tls.certPath) this.tls.enabled = true;
@@ -203,6 +205,27 @@ class WebServerService {
       fsSync.writeFileSync(this.configFile, JSON.stringify(cfg, null, 2));
     } catch (err) {
       console.error('Failed to persist server config:', err && err.message);
+    }
+  }
+
+  setAutoStart(flag) {
+    try {
+      this.autoStart = !!flag;
+      const cfg = this._readConfigFileSync();
+      cfg.autoStart = this.autoStart;
+      fsSync.writeFileSync(this.configFile, JSON.stringify(cfg, null, 2));
+      return { success: true, autoStart: this.autoStart };
+    } catch (e) {
+      return { success: false, error: e && e.message };
+    }
+  }
+
+  getConfig() {
+    try {
+      const cfg = this._readConfigFileSync();
+      return { success: true, config: { displayAddress: this.displayAddress, port: this.port, tls: this.tls, autoStart: this.autoStart, mobileUrl: this.mobileUrl } };
+    } catch (e) {
+      return { success: false, error: e && e.message };
     }
   }
 
