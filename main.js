@@ -148,6 +148,21 @@ ipcMain.handle('get-ca-cert', () => {
   try { if (!webServerService) return { success: false, error: 'Service not ready' }; return webServerService.getCAcert(); } catch (err) { return { success: false, error: err.message }; }
 });
 
+// Persist auto-start setting for web server
+ipcMain.handle('set-web-server-autostart', (event, flag) => {
+  try {
+    if (!webServerService) return { success: false, error: 'Service not ready' };
+    return webServerService.setAutoStart(!!flag);
+  } catch (err) { return { success: false, error: err.message }; }
+});
+
+ipcMain.handle('get-web-server-config', () => {
+  try {
+    if (!webServerService) return { success: false, error: 'Service not ready' };
+    return webServerService.getConfig();
+  } catch (err) { return { success: false, error: err.message }; }
+});
+
 // Allow renderer to broadcast session updates (selected row / field info) to connected mobile clients
 ipcMain.handle('broadcast-session-update', async (event, session) => {
   try {
@@ -367,6 +382,15 @@ app.whenReady().then(() => {
   } catch (e) {
     console.error('Failed to initialize WebServerService:', e && e.message);
   }
+
+  // If the service was configured to auto-start, start it now (best-effort)
+  (async () => {
+    try {
+      if (webServerService && webServerService.autoStart) {
+        try { await webServerService.startServer(); } catch (e) { console.warn('Auto-start server failed:', e && e.message); }
+      }
+    } catch (e) {}
+  })();
 
   // webServerService is instantiated above; nothing else to do here
 

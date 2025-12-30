@@ -63,7 +63,7 @@
       <div style="display: flex; gap: 8px; margin-top: 8px">
         <button id="sendBtn">Send</button>
         <button id="clearBtn" style="background: #6c757d">Clear</button>
-        <button id="enableSound" style="background: #007bff">
+        <button id="enableSound" style="background: #007bff; display: none">
           Enable Sound
         </button>
       </div>
@@ -86,6 +86,9 @@
         const video = document.getElementById("video");
         const canvas = document.getElementById("videoCanvas");
         const ctx = canvas.getContext("2d");
+        const beepEl = document.getElementById("beepAudio");
+        let beepReady = false;
+        let audioCtx = null;
 
         const socket = io();
         let scanning = false;
@@ -119,18 +122,30 @@
             if (audioUnlocked) return;
             audioUnlocked = true;
             try {
-              const beep = document.getElementById("beepAudio");
-              if (beep) {
-                const p = beep.play();
+              if (beepEl) {
+                try {
+                  beepEl.volume = 1.0;
+                  beepEl.muted = false;
+                } catch (e) {}
+                const p = beepEl.play();
                 if (p && typeof p.then === "function") {
                   p.then(() => {
-                    beep.pause();
                     try {
-                      beep.currentTime = 0;
+                      beepEl.pause();
+                      beepEl.currentTime = 0;
                     } catch (e) {}
+                    beepReady = true;
                   }).catch(() => {});
                 }
               }
+              try {
+                const AC = window.AudioContext || window.webkitAudioContext;
+                if (AC) {
+                  audioCtx = audioCtx || new AC();
+                  if (audioCtx && typeof audioCtx.resume === "function")
+                    audioCtx.resume().catch(() => {});
+                }
+              } catch (e) {}
             } catch (e) {}
             try {
               document.removeEventListener("click", doUnlock);
@@ -153,6 +168,27 @@
           } catch (e) {}
         })();
 
+        // Ensure the audio element is loaded early so canplaythrough fires when ready
+        try {
+          if (beepEl) {
+            try {
+              beepEl.load();
+            } catch (e) {}
+            try {
+              beepEl.addEventListener("canplaythrough", () => {
+                try {
+                  beepEl.volume = 1.0;
+                  beepEl.muted = false;
+                } catch (e) {}
+                beepReady = true;
+                try {
+                  if (enableBtn) enableBtn.style.display = "none";
+                } catch (e) {}
+              });
+            } catch (e) {}
+          }
+        } catch (e) {}
+
         function emitScan(code) {
           const now = Date.now();
           if (!code) return;
@@ -165,12 +201,36 @@
           } catch (e) {}
           socket.emit("mobile:scan", { code, timestamp: now });
           statusEl.textContent = "Sent: " + code;
-          // play beep if available (best-effort)
+          // play beep if available (best-effort). If play() is rejected (autoplay
+          // blocked), show the Enable Sound button to prompt a user gesture.
           try {
-            const beep = document.getElementById("beepAudio");
-            if (beep) {
-              const p = beep.play();
-              if (p && typeof p.catch === "function") p.catch(() => {});
+            if (beepEl) {
+              try {
+                beepEl.volume = 1.0;
+                beepEl.muted = false;
+              } catch (e) {}
+              const p = beepEl.play();
+              if (p && typeof p.then === "function") {
+                p.then(() => {
+                  // played successfully
+                }).catch((err) => {
+                  try {
+                    if (enableBtn) enableBtn.style.display = "inline-block";
+                  } catch (e) {}
+                  try {
+                    statusEl.textContent = 'Tap "Enable Sound" to allow beep';
+                  } catch (e) {}
+                });
+              } else if (p && typeof p.catch === "function") {
+                p.catch(() => {
+                  try {
+                    if (enableBtn) enableBtn.style.display = "inline-block";
+                  } catch (e) {}
+                  try {
+                    statusEl.textContent = 'Tap "Enable Sound" to allow beep';
+                  } catch (e) {}
+                });
+              }
             }
           } catch (e) {}
           try {
@@ -211,20 +271,29 @@
 
             // Try to unlock audio playback by performing a user-gesture play/pause
             try {
-              const beep = document.getElementById("beepAudio");
-              if (beep) {
-                // calling play() during a user-initiated startCamera click should
-                // allow subsequent programmatic plays (beep.play()) to succeed.
-                const p = beep.play();
+              if (beepEl) {
+                try {
+                  beepEl.volume = 1.0;
+                  beepEl.muted = false;
+                } catch (e) {}
+                const p = beepEl.play();
                 if (p && typeof p.then === "function") {
                   p.then(() => {
-                    beep.pause();
                     try {
-                      beep.currentTime = 0;
+                      beepEl.pause();
+                      beepEl.currentTime = 0;
                     } catch (e) {}
                   }).catch(() => {});
                 }
               }
+              try {
+                const AC = window.AudioContext || window.webkitAudioContext;
+                if (AC) {
+                  audioCtx = audioCtx || new AC();
+                  if (audioCtx && typeof audioCtx.resume === "function")
+                    audioCtx.resume().catch(() => {});
+                }
+              } catch (e) {}
             } catch (e) {}
 
             // Use native BarcodeDetector if available as a fallback
@@ -416,13 +485,30 @@
           if (enableBtn) {
             enableBtn.addEventListener("click", async () => {
               try {
-                const beep = document.getElementById("beepAudio");
-                if (beep) {
-                  await beep.play();
-                  beep.pause();
+                // Ensure AudioContext is resumed
+                try {
+                  const AC = window.AudioContext || window.webkitAudioContext;
+                  if (AC) {
+                    audioCtx = audioCtx || new AC();
+                    if (audioCtx && typeof audioCtx.resume === "function")
+                      await audioCtx.resume();
+                  }
+                } catch (e) {}
+
+                if (beepEl) {
                   try {
-                    beep.currentTime = 0;
+                    beepEl.volume = 1.0;
+                    beepEl.muted = false;
                   } catch (e) {}
+                  const p = beepEl.play();
+                  if (p && typeof p.then === "function") {
+                    await p.catch(() => {});
+                  }
+                  try {
+                    beepEl.pause();
+                    beepEl.currentTime = 0;
+                  } catch (e) {}
+                  beepReady = true;
                 }
                 statusEl.textContent = "Sound enabled";
                 enableBtn.style.display = "none";
