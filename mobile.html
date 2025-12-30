@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mobile Scanner</title>
+    <style>
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        padding: 16px;
+      }
+      .box {
+        max-width: 480px;
+        margin: 0 auto;
+      }
+      input[type="text"] {
+        width: 100%;
+        font-size: 20px;
+        padding: 12px;
+        margin: 8px 0;
+      }
+      button {
+        padding: 12px 16px;
+        font-size: 18px;
+        background: #28a745;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+      }
+      .log {
+        margin-top: 12px;
+        font-size: 14px;
+        color: #333;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <h2>Mobile Scanner</h2>
+      <p>Use the camera to scan barcodes or enter manually.</p>
+
+      <div>
+        <video
+          id="video"
+          playsinline
+          style="width: 100%; max-height: 360px; background: #000"
+        ></video>
+        <canvas id="videoCanvas" style="display: none"></canvas>
+      </div>
+
+      <div style="margin-top: 8px; display: flex; gap: 8px">
+        <button id="startCamera">Start Camera</button>
+        <button id="stopCamera" style="background: #6c757d">Stop</button>
+      </div>
+
+      <input
+        id="codeInput"
+        type="text"
+        placeholder="Scanned code"
+        autocomplete="off"
+        style="margin-top: 8px"
+      />
+      <div style="display: flex; gap: 8px; margin-top: 8px">
+        <button id="sendBtn">Send</button>
+        <button id="clearBtn" style="background: #6c757d">Clear</button>
+        <button id="enableSound" style="background: #007bff">
+          Enable Sound
+        </button>
+      </div>
+      <div class="log" id="status">Connecting...</div>
+    </div>
+
+    <audio id="beepAudio" src="/beep.mp3" preload="auto"></audio>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/libs/zxing.min.js"></script>
+    <script>
+      (function () {
+        const statusEl = document.getElementById("status");
+        const codeInput = document.getElementById("codeInput");
+        const sendBtn = document.getElementById("sendBtn");
+        const clearBtn = document.getElementById("clearBtn");
+        const startBtn = document.getElementById("startCamera");
+        const stopBtn = document.getElementById("stopCamera");
+        const enableBtn = document.getElementById("enableSound");
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("videoCanvas");
+        const ctx = canvas.getContext("2d");
+
+        const socket = io();
+        let scanning = false;
+        let stream = null;
+        let lastScan = { code: null, time: 0 };
+        const DEBOUNCE_MS = 1200;
+        let codeReader = null;
+        let useBarcodeDetector = false;
+        let audioUnlocked = false;
+
+        socket.on("connect", () => {
+          statusEl.textContent = "Connected to desktop";
+        });
+        socket.on("disconnect", () => {
+          statusEl.textContent = "Disconnected";
+        });
+        socket.on("session:update", (session) => {
+          try {
+            statusEl.textContent =
+              "Session: " +
+              (session && session.selectedRowIndex != null
+                ? "row " + session.selectedRowIndex
+                : JSON.stringify(session));
+          } catch (e) {}
+        });
+
+        // Attempt to unlock audio on first user gesture (click/touch) so beep.play()
+        // calls will succeed without a separate "Enable Sound" button.
+        (function setupAutoAudioUnlock() {
+          function doUnlock() {
+            if (audioUnlocked) return;
+            audioUnlocked = true;
+            try {
+              const beep = document.getElementById("beepAudio");
+              if (beep) {
+                const p = beep.play();
+                if (p && typeof p.then === "function") {
+                  p.then(() => {
+                    beep.pause();
+                    try {
+                      beep.currentTime = 0;
+                    } catch (e) {}
+                  }).catch(() => {});
+                }
+              }
+            } catch (e) {}
+            try {
+              document.removeEventListener("click", doUnlock);
+            } catch (e) {}
+            try {
+              document.removeEventListener("touchstart", doUnlock);
+            } catch (e) {}
+            try {
+              if (enableBtn) enableBtn.style.display = "none";
+            } catch (e) {}
+            statusEl.textContent = "Ready";
+          }
+          try {
+            document.addEventListener("click", doUnlock, { passive: true });
+          } catch (e) {}
+          try {
+            document.addEventListener("touchstart", doUnlock, {
+              passive: true,
+            });
+          } catch (e) {}
+        })();
+
+        function emitScan(code) {
+          const now = Date.now();
+          if (!code) return;
+          if (lastScan.code === code && now - lastScan.time < DEBOUNCE_MS)
+            return;
+          lastScan = { code, time: now };
+          // reflect immediately in UI
+          try {
+            codeInput.value = code;
+          } catch (e) {}
+          socket.emit("mobile:scan", { code, timestamp: now });
+          statusEl.textContent = "Sent: " + code;
+          // play beep if available (best-effort)
+          try {
+            const beep = document.getElementById("beepAudio");
+            if (beep) {
+              const p = beep.play();
+              if (p && typeof p.catch === "function") p.catch(() => {});
+            }
+          } catch (e) {}
+          try {
+            if (navigator && navigator.vibrate) navigator.vibrate(120);
+          } catch (e) {}
+        }
+
+        sendBtn.addEventListener("click", () => {
+          const code = (codeInput.value || "").trim();
+          if (!code) return;
+          emitScan(code);
+          codeInput.value = "";
+          codeInput.focus();
+        });
+
+        clearBtn.addEventListener("click", () => {
+          codeInput.value = "";
+          codeInput.focus();
+        });
+
+        async function startCamera() {
+          if (scanning) return;
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: "environment" },
+              audio: false,
+            });
+            video.srcObject = stream;
+            await video.play();
+            // Initialize ZXing reader if available
+            try {
+              if (window.ZXing && window.ZXing.BrowserMultiFormatReader) {
+                codeReader = new window.ZXing.BrowserMultiFormatReader();
+              }
+            } catch (e) {
+              codeReader = null;
+            }
+
+            // Try to unlock audio playback by performing a user-gesture play/pause
+            try {
+              const beep = document.getElementById("beepAudio");
+              if (beep) {
+                // calling play() during a user-initiated startCamera click should
+                // allow subsequent programmatic plays (beep.play()) to succeed.
+                const p = beep.play();
+                if (p && typeof p.then === "function") {
+                  p.then(() => {
+                    beep.pause();
+                    try {
+                      beep.currentTime = 0;
+                    } catch (e) {}
+                  }).catch(() => {});
+                }
+              }
+            } catch (e) {}
+
+            // Use native BarcodeDetector if available as a fallback
+            try {
+              if (window.BarcodeDetector) {
+                useBarcodeDetector = true;
+              }
+            } catch (e) {
+              useBarcodeDetector = false;
+            }
+
+            scanning = true;
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+
+            // Prefer ZXing continuous decode if reader is present
+            if (codeReader) {
+              try {
+                codeReader.decodeFromVideoDevice(null, video, (result, err) => {
+                  if (result) {
+                    const text = result.getText
+                      ? result.getText()
+                      : result.text || result;
+                    emitScan(text);
+                  } else if (
+                    err &&
+                    !(err instanceof window.ZXing.NotFoundException)
+                  ) {
+                    console.warn("ZXing decode error", err);
+                  }
+                });
+                statusEl.textContent = "Camera started (ZXing)";
+                return;
+              } catch (e) {
+                console.warn("ZXing continuous decode failed, falling back", e);
+              }
+            }
+
+            // Fallback to animation scanning loop using BarcodeDetector when available
+            tick();
+            statusEl.textContent = "Camera started";
+          } catch (e) {
+            console.warn("Camera start failed", e);
+            statusEl.textContent = "Camera error: " + (e && e.message);
+          }
+        }
+
+        function stopCamera() {
+          try {
+            scanning = false;
+            if (stream) {
+              const tracks = stream.getTracks();
+              tracks.forEach((t) => t.stop());
+            }
+            stream = null;
+            video.pause();
+            video.srcObject = null;
+            statusEl.textContent = "Camera stopped";
+          } catch (e) {}
+        }
+
+        async function tick() {
+          if (!scanning) return;
+          try {
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              try {
+                if (useBarcodeDetector && window.BarcodeDetector) {
+                  try {
+                    const bd = new window.BarcodeDetector({
+                      formats: [
+                        "code_128",
+                        "ean_13",
+                        "ean_8",
+                        "upc_e",
+                        "code_39",
+                        "code_93",
+                        "upc_a",
+                      ],
+                    });
+                    const bitmap = await createImageBitmap(canvas);
+                    const results = await bd.detect(bitmap);
+                    bitmap.close();
+                    if (results && results.length > 0) {
+                      const val = results[0].rawValue || results[0].raw || "";
+                      if (val) emitScan(val);
+                    }
+                  } catch (e) {
+                    // ignore per-frame barcode detector errors
+                  }
+                } else if (codeReader && codeReader.decodeFromCanvas) {
+                  try {
+                    const res = await codeReader.decodeFromCanvas(canvas);
+                    if (res) {
+                      const text = res.getText
+                        ? res.getText()
+                        : res.text || res;
+                      emitScan(text);
+                    }
+                  } catch (e) {
+                    // ignore not-found
+                  }
+                }
+              } catch (e) {}
+            }
+          } catch (e) {}
+          requestAnimationFrame(tick);
+        }
+
+        // Immediate single-frame scan when user taps/clicks the video (tap-to-scan)
+        async function immediateScan() {
+          try {
+            if (!video || !canvas) return;
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            // Try ZXing single-shot first
+            try {
+              if (codeReader && codeReader.decodeFromCanvas) {
+                const res = await codeReader.decodeFromCanvas(canvas);
+                if (res) {
+                  const text = res.getText ? res.getText() : res.text || res;
+                  codeInput.value = text;
+                  statusEl.textContent = "Detected: " + text;
+                  emitScan(text);
+                  return;
+                }
+              }
+            } catch (e) {}
+
+            // Try BarcodeDetector single-shot
+            try {
+              if (useBarcodeDetector && window.BarcodeDetector) {
+                const bd = new window.BarcodeDetector({
+                  formats: [
+                    "code_128",
+                    "ean_13",
+                    "ean_8",
+                    "upc_e",
+                    "code_39",
+                    "code_93",
+                    "upc_a",
+                  ],
+                });
+                const bitmap = await createImageBitmap(canvas);
+                const results = await bd.detect(bitmap);
+                bitmap.close();
+                if (results && results.length > 0) {
+                  const val = results[0].rawValue || results[0].raw || "";
+                  if (val) {
+                    codeInput.value = val;
+                    statusEl.textContent = "Detected: " + val;
+                    emitScan(val);
+                    return;
+                  }
+                }
+              }
+            } catch (e) {}
+
+            statusEl.textContent =
+              "No code detected — try tapping again or use Start for continuous scan";
+          } catch (e) {
+            statusEl.textContent = "Scan error";
+          }
+        }
+
+        // Wire tap/click on video to single-frame scan (mobile-friendly)
+        try {
+          video.addEventListener("click", immediateScan);
+        } catch (e) {}
+        try {
+          video.addEventListener(
+            "touchstart",
+            (ev) => {
+              ev.preventDefault();
+              immediateScan();
+            },
+            { passive: false }
+          );
+        } catch (e) {}
+
+        startBtn.addEventListener("click", startCamera);
+        stopBtn.addEventListener("click", stopCamera);
+
+        // Enable sound: user gesture to unlock audio playback on some mobile browsers
+        try {
+          if (enableBtn) {
+            enableBtn.addEventListener("click", async () => {
+              try {
+                const beep = document.getElementById("beepAudio");
+                if (beep) {
+                  await beep.play();
+                  beep.pause();
+                  try {
+                    beep.currentTime = 0;
+                  } catch (e) {}
+                }
+                statusEl.textContent = "Sound enabled";
+                enableBtn.style.display = "none";
+              } catch (e) {
+                console.warn("Enable sound failed", e);
+                statusEl.textContent = "Sound enable failed";
+              }
+            });
+          }
+        } catch (e) {}
+
+        // Allow Enter to send
+        codeInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") sendBtn.click();
+        });
+
+        // Auto-attempt to start camera on load (best-effort)
+        (async function () {
+          try {
+            await startCamera();
+          } catch (e) {}
+        })();
+      })();
+    </script>
+  </body>
+</html>

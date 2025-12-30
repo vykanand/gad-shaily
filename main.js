@@ -104,6 +104,58 @@ const rootPath = app.isPackaged
   ? path.dirname(app.getPath('exe'))
   : process.cwd();
 
+// Web server service (local LAN HTTPS server)
+const WebServerService = require('./main/services/WebServerService');
+let webServerService = null;
+
+// Register web-server IPC handlers early so renderer can call them before app.ready
+ipcMain.handle('start-web-server', async (event, displayAddress) => {
+  try {
+    if (displayAddress && webServerService && typeof webServerService.setDisplayAddress === 'function') {
+      webServerService.setDisplayAddress(displayAddress);
+    }
+    if (!webServerService) return { success: false, error: 'Service not ready' };
+    return await webServerService.startServer();
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('stop-web-server', async () => {
+  try {
+    if (!webServerService) return { success: false, error: 'Service not ready' };
+    return await webServerService.stopServer();
+  } catch (err) { return { success: false, error: err.message }; }
+});
+
+ipcMain.handle('get-server-status', async () => {
+  try { if (!webServerService) return { success: true, isRunning: false }; return await webServerService.getServerStatus(); } catch (err) { return { success: false, error: err.message }; }
+});
+
+ipcMain.handle('regenerate-web-server-tls', async () => {
+  try { if (!webServerService) return { success: false, error: 'Service not ready' }; return await webServerService.regenerateTLS(); } catch (err) { return { success: false, error: err.message }; }
+});
+
+ipcMain.handle('set-web-server-tls', (event, tlsOptions) => {
+  try { if (!webServerService) return { success: false, error: 'Service not ready' }; return webServerService.setTLSOptions(tlsOptions || {}); } catch (err) { return { success: false, error: err.message }; }
+});
+
+ipcMain.handle('get-local-ips', () => {
+  try { if (!webServerService) return { success: false, error: 'Service not ready' }; return { success: true, ips: webServerService.getLocalIPAddresses() }; } catch (err) { return { success: false, error: err.message }; }
+});
+
+ipcMain.handle('get-ca-cert', () => {
+  try { if (!webServerService) return { success: false, error: 'Service not ready' }; return webServerService.getCAcert(); } catch (err) { return { success: false, error: err.message }; }
+});
+
+// Allow renderer to broadcast session updates (selected row / field info) to connected mobile clients
+ipcMain.handle('broadcast-session-update', async (event, session) => {
+  try {
+    if (!webServerService) return { success: false, error: 'Service not ready' };
+    return webServerService.broadcastSessionUpdate(session || {});
+  } catch (err) { return { success: false, error: err.message }; }
+});
+
 // Handle reading master data
 ipcMain.handle('read-master-data', async () => {
   // Only look for master.xlsx in the application/project root (previous behaviour)
@@ -257,6 +309,49 @@ function createWindow() {
   // mainWindow.webContents.openDevTools();
 }
 
+// Accept self-signed certs for the local web server (development convenience)
+// This prevents ERR_CERT_AUTHORITY_INVALID when loading the app's mobile page
+app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    const port = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+
+    // Build a dynamic allowlist: localhost + any IPs/hosts returned by webServerService
+    const allowList = new Set(['localhost', '127.0.0.1', '::1']);
+    if (webServerService) {
+      try {
+        if (webServerService.mobileUrl) {
+          const m = new URL(webServerService.mobileUrl);
+          if (m.hostname) allowList.add(m.hostname);
+          if (m.port) allowList.add(String(m.port));
+        }
+      } catch (e) {}
+
+      try {
+        const ips = webServerService.getLocalIPAddresses();
+        (ips || []).forEach(i => { if (i && i.address) allowList.add(i.address); });
+      } catch (e) {}
+
+      try {
+        if (webServerService.displayAddress) allowList.add(webServerService.displayAddress);
+      } catch (e) {}
+    }
+
+    // If the request host is in the allowlist and the port matches our web server
+    if ((allowList.has(host) || allowList.has(`${host}`)) &&
+        (!webServerService || !webServerService.port || String(port) === String(webServerService.port))) {
+      event.preventDefault();
+      try { callback(true); } catch (e) {}
+      return;
+    }
+  } catch (e) {
+    // ignore parsing errors
+  }
+
+  try { callback(false); } catch (e) {}
+});
+
 // Handle app exit
 ipcMain.on('close-app', () => {
   app.quit();
@@ -265,6 +360,15 @@ ipcMain.on('close-app', () => {
 // When Electron is ready
 app.whenReady().then(() => {
   createWindow();
+
+  // Instantiate WebServerService with minimal dependencies (nulls are acceptable)
+  try {
+    webServerService = new WebServerService(null, null, null, null);
+  } catch (e) {
+    console.error('Failed to initialize WebServerService:', e && e.message);
+  }
+
+  // webServerService is instantiated above; nothing else to do here
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
