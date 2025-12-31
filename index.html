@@ -889,6 +889,83 @@
               const urlEl = document.getElementById("server-url");
               const qrEl = document.getElementById("server-qr");
               const downloadCa = document.getElementById("btn-download-ca");
+              const updateMasterBtn =
+                document.getElementById("btn-update-master");
+              const masterModalId = "master-link-modal";
+
+              // Create master link modal container (lazy)
+              function ensureMasterModal() {
+                let m = document.getElementById(masterModalId);
+                if (m) return m;
+                m = document.createElement("div");
+                m.id = masterModalId;
+                m.className = "modal";
+                m.style.display = "none";
+                m.style.zIndex = 10030;
+                m.innerHTML = `<div class="modal-content" style="max-width:480px"><div class="modal-header"><h2 class="modal-title">Update Master</h2></div><div style="padding:16px"><div id="master-link-status">Loading...</div><div id="master-link-qr" style="margin-top:8px"></div><div style="margin-top:12px"><button id="master-open-link">Open Link</button><button id="master-close" style="margin-left:8px">Close</button></div></div></div>`;
+                document.body.appendChild(m);
+                return m;
+              }
+
+              if (updateMasterBtn) {
+                updateMasterBtn.addEventListener("click", async () => {
+                  try {
+                    // Ensure server is running before opening the Update Master modal
+                    const stCheck = await ipcRenderer.invoke(
+                      "get-server-status"
+                    );
+                    if (!stCheck || !stCheck.success || !stCheck.isRunning) {
+                      window.alert(
+                        "Web server is not running. Start the web server before using Update Master."
+                      );
+                      return;
+                    }
+
+                    const modal = ensureMasterModal();
+                    const status = modal.querySelector("#master-link-status");
+                    const qrEl = modal.querySelector("#master-link-qr");
+                    const openBtn = modal.querySelector("#master-open-link");
+                    const closeBtn = modal.querySelector("#master-close");
+                    modal.style.display = "block";
+                    status.textContent = "Fetching server status...";
+                    const st = stCheck;
+                    const base =
+                      st.url ||
+                      (st.isRunning
+                        ? `${st.ipAddress ? st.ipAddress : "localhost"}:${
+                            st.port
+                          }`
+                        : "");
+                    const masterUrl =
+                      (base || "").replace(/\/$/, "") + "/master";
+                    status.innerHTML = `<div style="word-break:break-all">${masterUrl}</div>`;
+                    // request QR from server API
+                    try {
+                      const qResp = await fetch(
+                        (st.url || (st.isRunning ? st.url : "")) +
+                          "/api/qrcode?url=" +
+                          encodeURIComponent(masterUrl)
+                      );
+                      const qj = await qResp.json();
+                      if (qj && qj.success && qj.qr)
+                        qrEl.innerHTML = `<img src="${qj.qr}" alt="qr"/>`;
+                      else qrEl.innerHTML = "";
+                    } catch (e) {
+                      qrEl.innerHTML = "";
+                    }
+                    openBtn.onclick = () => {
+                      try {
+                        window.open(masterUrl, "_blank");
+                      } catch (e) {}
+                    };
+                    closeBtn.onclick = () => {
+                      modal.style.display = "none";
+                    };
+                  } catch (e) {
+                    console.error("open master modal failed", e);
+                  }
+                });
+              }
               const autostartCheckbox =
                 document.getElementById("server-autostart");
 
@@ -1084,7 +1161,7 @@
     <script>
       // Configuration
       const showSettings = false; // Set to false to hide settings button
-      const showServer = true; // Set to false to hide Server button
+      const showServer = false; // Set to false to hide Server button
 
       // Global debug gate and logger wrapper. Set `window.APP_DEBUG = true` in dev console to enable verbose logs.
       window.APP_DEBUG = !!window.APP_DEBUG;
@@ -2154,6 +2231,10 @@
           try {
             const serverBtn = document.getElementById("btn-start-server");
             if (serverBtn) serverBtn.style.display = showServer ? "" : "none";
+            const updateMasterNavBtn =
+              document.getElementById("btn-update-master");
+            if (updateMasterNavBtn)
+              updateMasterNavBtn.style.display = showServer ? "" : "none";
           } catch (e) {}
         } catch (error) {
           console.error("Error loading settings:", error);
@@ -5791,6 +5872,9 @@
           <button id="btn-history">History</button>
           <button id="btn-settings">Settings</button>
           <button id="btn-start-server" class="nav-button">Server</button>
+          <button id="btn-update-master" class="nav-button">
+            Update master
+          </button>
         </nav>
       </header>
 

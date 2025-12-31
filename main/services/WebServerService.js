@@ -5,6 +5,7 @@ const cors = require('cors');
 const QRCode = require('qrcode');
 const fs = require('fs').promises;
 const fsSync = require('fs');
+const XLSX = require('xlsx');
 const { app, BrowserWindow } = require('electron');
 const https = require('https');
 const selfsigned = require('selfsigned');
@@ -286,6 +287,15 @@ class WebServerService {
       }
     });
 
+    // Serve master upload UI at /master
+    this.app.get('/master', (req, res) => {
+      try {
+        return res.sendFile(path.join(this.rendererPath, 'master.html'));
+      } catch (e) {
+        return res.status(500).send('master UI not available');
+      }
+    });
+
     this.setupAPIRoutes();
 
     const maxRetries = 8;
@@ -383,6 +393,63 @@ class WebServerService {
   }
 
   setupAPIRoutes() {
+    // QR helper for arbitrary URLs
+    this.app.get('/api/qrcode', async (req, res) => {
+      try {
+        const u = req.query && req.query.url;
+        if (!u) return res.status(400).json({ success: false, error: 'url required' });
+        const qr = await this.generateQRCode(u);
+        return res.json({ success: true, qr });
+      } catch (error) {
+        return res.status(500).json({ success: false, error: error && error.message });
+      }
+    });
+
+    // Upload master file (raw binary POST). Client should send header 'x-filename'.
+    this.app.post('/api/upload-master', express.raw({ type: 'application/octet-stream', limit: '50mb' }), async (req, res) => {
+      try {
+        const filename = (req.headers['x-filename'] || 'uploaded-master.xlsx').replace(/[^a-zA-Z0-9._-]/g, '_');
+        const tmpDir = path.join(this.rendererPath, 'tmp');
+        if (!fsSync.existsSync(tmpDir)) fsSync.mkdirSync(tmpDir, { recursive: true });
+        const tmpPath = path.join(tmpDir, filename);
+        // write buffer
+        fsSync.writeFileSync(tmpPath, req.body);
+
+        // parse workbook to produce preview (first sheet)
+        try {
+          const workbook = XLSX.read(fsSync.readFileSync(tmpPath), { type: 'buffer' });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          const raw = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+          const headers = (raw && raw[0]) || [];
+          const rows = (raw || []).slice(1, 21); // preview up to 20 rows
+          return res.json({ success: true, tmpPath: tmpPath, filename, headers, rows, rowCount: (raw || []).length - 1 });
+        } catch (e) {
+          return res.json({ success: true, tmpPath: tmpPath, filename, headers: [], rows: [], rowCount: 0, parseError: e && e.message });
+        }
+      } catch (error) {
+        return res.status(500).json({ success: false, error: error && error.message });
+      }
+    });
+
+    // Commit uploaded master: move tmp file into project root as master.xlsx and notify renderer
+    this.app.post('/api/commit-master', express.json(), async (req, res) => {
+      try {
+        const tmpPath = req.body && req.body.tmpPath;
+        if (!tmpPath || !fsSync.existsSync(tmpPath)) return res.status(400).json({ success: false, error: 'tmpPath not found' });
+        const dest = path.join(this.rendererPath, 'master.xlsx');
+        fsSync.copyFileSync(tmpPath, dest);
+        // notify renderer windows to reload master
+        try {
+          const wins = BrowserWindow.getAllWindows();
+          if (wins && wins[0] && wins[0].webContents) {
+            wins[0].webContents.send('master-updated', { path: dest });
+          }
+        } catch (e) {}
+        return res.json({ success: true, file: dest });
+      } catch (error) {
+        return res.status(500).json({ success: false, error: error && error.message });
+      }
+    });
     this.app.get('/api/local-ips', async (req, res) => {
       try {
         const ips = this.getLocalIPAddresses();
