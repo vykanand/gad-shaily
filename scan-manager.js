@@ -810,14 +810,24 @@
 
         // Determine expected value for this field
         let expected = "";
-        if (this.scanSession.targetPart) {
-          expected = window.getValueFromRow
-            ? window.getValueFromRow(this.scanSession.targetPart, currentField)
-            : "";
-        }
-        if (!expected) {
-          const input = document.getElementById(currentField);
-          expected = input ? input.value : "";
+        // If manual active and operator requested using input value, prefer that
+        try {
+          if (this.scanSession._manualActive === currentField && this.scanSession._forceUseInputValueForActive) {
+            const input = document.getElementById(currentField);
+            expected = input ? (input.value || '') : (this.scanSession._manualExpected || '');
+          } else {
+            if (this.scanSession.targetPart) {
+              expected = window.getValueFromRow
+                ? window.getValueFromRow(this.scanSession.targetPart, currentField)
+                : "";
+            }
+            if (!expected) {
+              const input = document.getElementById(currentField);
+              expected = input ? input.value : "";
+            }
+          }
+        } catch (e) {
+          try { const input = document.getElementById(currentField); expected = input ? input.value : ''; } catch (ee) { expected = ''; }
         }
 
         try {
@@ -881,7 +891,11 @@
             }
           } catch (e) {}
           // If operator had manually selected this field, clear manual active now
-          if (this.scanSession._manualActive === currentField) this.scanSession._manualActive = null;
+          if (this.scanSession._manualActive === currentField) {
+            this.scanSession._manualActive = null;
+            // clear manual preference flags
+            try { this.scanSession._forceUseInputValueForActive = false; this.scanSession._manualExpected = null; } catch(e){}
+          }
           const next = this._advanceToNextField();
           // Broadcast updated session after successful match
           try {

@@ -1309,6 +1309,41 @@
           }
           input.readOnly = true;
 
+          // clicking an input should make it the active scan target
+          try {
+            input.addEventListener("click", (e) => {
+              try {
+                // prefer using scanManager if available to keep UI consistent
+                if (
+                  window.scanManager &&
+                  typeof window.scanManager._setManualActiveField === "function"
+                ) {
+                  window.scanManager._setManualActiveField(field.id);
+                  // force using the input value as expected for this manual active field
+                  try {
+                    window.scanManager.scanSession._forceUseInputValueForActive = true;
+                    const el = document.getElementById(field.id);
+                    window.scanManager.scanSession._manualExpected = el
+                      ? el.value || ""
+                      : "";
+                  } catch (e) {}
+                } else {
+                  // fallback: toggle classes locally
+                  try {
+                    const all = (
+                      (window.settings && window.settings.fields) ||
+                      []
+                    )
+                      .map((f) => document.getElementById(f.id))
+                      .filter(Boolean);
+                    all.forEach((a) => a.classList.remove("scan-active"));
+                    input.classList.add("scan-active");
+                  } catch (e) {}
+                }
+              } catch (e) {}
+            });
+          } catch (e) {}
+
           row.appendChild(label);
           row.appendChild(input);
           inputSection.insertBefore(row, scanByRow);
