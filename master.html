@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Upload Master</title>
+    <style>
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        padding: 16px;
+      }
+      .box {
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      input[type="file"] {
+        display: block;
+        margin: 12px 0;
+      }
+      button {
+        padding: 8px 12px;
+        margin-right: 8px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+      }
+      th,
+      td {
+        padding: 6px 8px;
+        border: 1px solid #ddd;
+      }
+      .preview {
+        max-height: 320px;
+        overflow: auto;
+        border: 1px solid #eee;
+        padding: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <h2>Update Master</h2>
+      <p>
+        Upload an Excel file (.xlsx). We'll preview the headers and first 20
+        rows before you overwrite the current master.
+      </p>
+      <input id="fileInput" type="file" accept=".xlsx,.xls" />
+      <div>
+        <button id="uploadBtn" disabled>Upload & Preview</button>
+        <button
+          id="commitBtn"
+          disabled
+          style="background: #28a745; color: #fff"
+        >
+          Overwrite master
+        </button>
+      </div>
+
+      <div
+        id="status"
+        style="margin-top: 12px; font-size: 13px; color: #333"
+      ></div>
+      <div id="preview" class="preview" style="display: none"></div>
+    </div>
+
+    <script>
+      (function () {
+        const fileInput = document.getElementById("fileInput");
+        const uploadBtn = document.getElementById("uploadBtn");
+        const commitBtn = document.getElementById("commitBtn");
+        const statusEl = document.getElementById("status");
+        const previewEl = document.getElementById("preview");
+        let lastTmpPath = null;
+
+        fileInput.addEventListener("change", () => {
+          uploadBtn.disabled = !fileInput.files || fileInput.files.length === 0;
+        });
+
+        uploadBtn.addEventListener("click", async () => {
+          if (!fileInput.files || fileInput.files.length === 0) return;
+          const f = fileInput.files[0];
+          statusEl.textContent = "Uploading...";
+          uploadBtn.disabled = true;
+          try {
+            const buf = await f.arrayBuffer();
+            const base = new Uint8Array(buf);
+            const resp = await fetch("/api/upload-master", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/octet-stream",
+                "x-filename": f.name,
+              },
+              body: base,
+            });
+            const j = await resp.json();
+            if (!j || !j.success) {
+              statusEl.textContent = "Upload failed: " + (j && j.error);
+              uploadBtn.disabled = false;
+              return;
+            }
+            lastTmpPath = j.tmpPath;
+            commitBtn.disabled = false;
+            statusEl.textContent = `Preview: ${j.headers.length} headers, ${j.rowCount} rows`;
+            // build preview table
+            let html = "";
+            if (j.headers && j.headers.length) {
+              html +=
+                "<table><thead><tr>" +
+                j.headers.map((h) => `<th>${String(h || "")}</th>`).join("") +
+                "</tr></thead>";
+              html += "<tbody>";
+              (j.rows || []).forEach((r) => {
+                html +=
+                  "<tr>" +
+                  j.headers
+                    .map(
+                      (_, i) =>
+                        `<td>${String(r[i] || "").replace(/</g, "&lt;")}</td>`
+                    )
+                    .join("") +
+                  "</tr>";
+              });
+              html += "</tbody></table>";
+            } else if (j.parseError) {
+              html =
+                '<div style="color:#a00">Parse error: ' +
+                String(j.parseError) +
+                "</div>";
+            } else html = "<div>No data found in first sheet.</div>";
+            previewEl.innerHTML = html;
+            previewEl.style.display = "block";
+          } catch (err) {
+            statusEl.textContent = "Upload error: " + String(err);
+          }
+          uploadBtn.disabled = false;
+        });
+
+        commitBtn.addEventListener("click", async () => {
+          if (!lastTmpPath) return;
+          commitBtn.disabled = true;
+          statusEl.textContent = "Committing...";
+          try {
+            const resp = await fetch("/api/commit-master", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ tmpPath: lastTmpPath }),
+            });
+            const j = await resp.json();
+            if (j && j.success) {
+              statusEl.textContent = "Master overwritten successfully";
+              lastTmpPath = null;
+              commitBtn.disabled = true;
+            } else {
+              statusEl.textContent = "Commit failed: " + (j && j.error);
+              commitBtn.disabled = false;
+            }
+          } catch (err) {
+            statusEl.textContent = "Commit error: " + String(err);
+            commitBtn.disabled = false;
+          }
+        });
+
+        // Try to auto-start file input state
+        try {
+          fileInput.value = "";
+        } catch (e) {}
+      })();
+    </script>
+  </body>
+</html>

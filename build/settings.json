@@ -49,12 +49,15 @@
     "field_8"
   ],
   "scanOperation": "equals",
-  "displayField": "field_1",
+  "displayField": "field_0",
   "displayFields": [
+    "field_0",
     "field_1",
     "field_3",
+    "field_4",
     "field_6",
-    "field_8"
+    "field_8",
+    "field_1766386851750"
   ],
   "removedHeaders": [
     {
