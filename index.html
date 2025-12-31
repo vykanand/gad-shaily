@@ -1083,7 +1083,8 @@
     </script>
     <script>
       // Configuration
-      const showSettings = true; // Set to false to hide settings button
+      const showSettings = false; // Set to false to hide settings button
+      const showServer = true; // Set to false to hide Server button
 
       // Global debug gate and logger wrapper. Set `window.APP_DEBUG = true` in dev console to enable verbose logs.
       window.APP_DEBUG = !!window.APP_DEBUG;
@@ -2149,6 +2150,11 @@
               e
             );
           }
+          // Respect developer config to hide/show the server button
+          try {
+            const serverBtn = document.getElementById("btn-start-server");
+            if (serverBtn) serverBtn.style.display = showServer ? "" : "none";
+          } catch (e) {}
         } catch (error) {
           console.error("Error loading settings:", error);
         }
