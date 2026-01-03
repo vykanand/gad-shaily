@@ -107,6 +107,79 @@ const rootPath = app.isPackaged
 // Web server service (local LAN HTTPS server)
 const WebServerService = require('./main/services/WebServerService');
 let webServerService = null;
+// System overlay window reference (used to block entire screen)
+let systemOverlayWindow = null;
+
+ipcMain.handle('show-system-overlay', async (event, options) => {
+  try {
+    // If already shown, bring to front
+    if (systemOverlayWindow && !systemOverlayWindow.isDestroyed()) {
+      try { systemOverlayWindow.setAlwaysOnTop(true, 'screen-saver'); systemOverlayWindow.show(); } catch (e) {}
+      return { success: true };
+    }
+
+    // Determine bottom-right quarter of primary display
+    try {
+      const { screen } = require('electron');
+      const display = screen.getPrimaryDisplay();
+      const b = display.bounds || { x: 0, y: 0, width: 800, height: 600 };
+      const w = Math.max(50, Math.floor(b.width / 2));
+      const h = Math.max(50, Math.floor(b.height / 2));
+      const x = b.x + (b.width - w);
+      const y = b.y + (b.height - h);
+
+      systemOverlayWindow = new BrowserWindow({
+        x,
+        y,
+        width: w,
+        height: h,
+        frame: false,
+        transparent: true,
+        resizable: false,
+        movable: false,
+        focusable: true,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        show: false,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true
+        }
+      });
+
+      try { systemOverlayWindow.setAlwaysOnTop(true, 'screen-saver'); } catch (e) {}
+
+      const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';"><style>html,body{height:100%;margin:0;}body{background:rgba(0,0,0,0.45);-webkit-user-select:none;}#cover{position:fixed;left:0;top:0;right:0;bottom:0;}#msg{position:fixed;right:10px;bottom:10px;color:#fff;font-size:14px;padding:10px 12px;background:rgba(0,0,0,0.35);border-radius:6px;}</style></head><body><div id="cover"></div><div id="msg">Screen blocked by application</div></body></html>`;
+
+      await systemOverlayWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+      systemOverlayWindow.once('ready-to-show', () => {
+        try { systemOverlayWindow.show(); } catch (e) {}
+      });
+
+      systemOverlayWindow.on('closed', () => { systemOverlayWindow = null; });
+      return { success: true };
+    } catch (err) {
+      console.error('show-system-overlay display calculation failed', err);
+      return { success: false, error: String(err) };
+    }
+  } catch (err) {
+    console.error('show-system-overlay failed', err);
+    return { success: false, error: String(err) };
+  }
+});
+
+ipcMain.handle('hide-system-overlay', async () => {
+  try {
+    if (systemOverlayWindow && !systemOverlayWindow.isDestroyed()) {
+      try { systemOverlayWindow.close(); } catch (e) { systemOverlayWindow.hide && systemOverlayWindow.hide(); }
+      systemOverlayWindow = null;
+    }
+    return { success: true };
+  } catch (err) {
+    console.error('hide-system-overlay failed', err);
+    return { success: false, error: String(err) };
+  }
+});
 
 // Register web-server IPC handlers early so renderer can call them before app.ready
 ipcMain.handle('start-web-server', async (event, displayAddress) => {

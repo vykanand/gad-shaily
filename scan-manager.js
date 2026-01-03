@@ -7,6 +7,8 @@
   };
 
   const scanManager = {
+    // Hardcoded block code shown on final-pass modal
+    _blockScreenCode: '1234',
     // Initialize session state
     scanSession: {
       targetPart: null,
@@ -610,6 +612,31 @@
         msg.style.marginBottom = '18px';
         msg.textContent = 'PREVIOUS SCAN WAS FULL PASS (PROCEED)?';
 
+        // Display the hardcoded blockScreen variable visibly on the modal
+        const codeLine = document.createElement('div');
+        codeLine.style.fontSize = '13px';
+        codeLine.style.color = '#f1f8e9';
+        codeLine.style.marginBottom = '8px';
+        codeLine.textContent = 'Block Code: ' + String(this._blockScreenCode || '');
+
+        // Password input to enable the proceed button
+        const pwdInput = document.createElement('input');
+        pwdInput.type = 'password';
+        pwdInput.id = 'final-pass-password-input';
+        pwdInput.placeholder = 'Enter block code to enable proceed';
+        pwdInput.style.padding = '10px 12px';
+        pwdInput.style.fontSize = '14px';
+        pwdInput.style.borderRadius = '6px';
+        pwdInput.style.border = '1px solid rgba(255,255,255,0.08)';
+        pwdInput.style.marginBottom = '12px';
+        pwdInput.style.width = '80%';
+
+        const helper = document.createElement('div');
+        helper.style.fontSize = '12px';
+        helper.style.color = '#dcedc8';
+        helper.style.marginBottom = '12px';
+        helper.textContent = 'Proceed button will be enabled when the code matches.';
+
         const btn = document.createElement('button');
         btn.id = 'final-pass-proceed-btn';
         btn.textContent = 'PREVIOUS SCAN WAS FULL PASS (PROCEED)';
@@ -622,15 +649,51 @@
         btn.style.borderRadius = '10px';
         btn.style.cursor = 'pointer';
         btn.style.boxShadow = '0 8px 20px rgba(0,200,83,0.18)';
+        // Start disabled until correct code entered
+        btn.disabled = true;
+        btn.style.opacity = '0.55';
 
         btn.addEventListener('click', () => {
           try { this._onFinalPassProceed(); } catch (e) { console.error(e); }
         });
 
         box.appendChild(msg);
+        box.appendChild(codeLine);
+        box.appendChild(pwdInput);
+        box.appendChild(helper);
         box.appendChild(btn);
         overlay.appendChild(box);
         document.body.appendChild(overlay);
+
+        // NOTE: system-wide overlay is handled by main process via IPC; no renderer DOM blocker needed
+
+        // Enable proceed only when input matches block code
+        try {
+          const checkMatch = async () => {
+            const val = (pwdInput.value || '').trim();
+            const ok = val !== '' && val === String(this._blockScreenCode || '');
+            try {
+              btn.disabled = !ok;
+              btn.style.opacity = ok ? '1' : '0.55';
+            } catch (e) {}
+            // Also request main process to show/hide system overlay window (bottom-right quarter)
+            try {
+              if (window && window.ipcRenderer && typeof window.ipcRenderer.invoke === 'function') {
+                if (ok) {
+                  try { await window.ipcRenderer.invoke('hide-system-overlay'); } catch(e){}
+                } else {
+                  try { await window.ipcRenderer.invoke('show-system-overlay'); } catch(e){}
+                }
+              } else if (typeof require === 'function') {
+                try {
+                  const { ipcRenderer } = require('electron');
+                  if (ok) await ipcRenderer.invoke('hide-system-overlay'); else await ipcRenderer.invoke('show-system-overlay');
+                } catch (e) {}
+              }
+            } catch (e) {}
+          };
+          pwdInput.addEventListener('input', checkMatch);
+        } catch (e) {}
       } catch (e) {
         console.error('scanManager: failed creating final-pass modal', e);
       }
@@ -643,7 +706,17 @@
         if (!modal) return;
         modal.style.display = 'flex';
         const btn = document.getElementById('final-pass-proceed-btn');
-        try { if (btn) { if (window.safeFocus) window.safeFocus(btn); else btn.focus && btn.focus(); } } catch (e) {}
+        try {
+          // Request main process to show system-wide overlay (bottom-right quarter)
+          try {
+            if (window && window.ipcRenderer && typeof window.ipcRenderer.invoke === 'function') {
+              window.ipcRenderer.invoke('show-system-overlay').catch(()=>{});
+            } else if (typeof require === 'function') {
+              try { const { ipcRenderer } = require('electron'); ipcRenderer.invoke('show-system-overlay').catch(()=>{}); } catch(e){}
+            }
+          } catch (e) {}
+        } catch (e) {}
+        try { if (btn) { const pwd = document.getElementById('final-pass-password-input'); if (pwd) { try { pwd.focus(); } catch(e){} } else if (window.safeFocus) window.safeFocus(btn); else btn.focus && btn.focus(); } } catch (e) {}
       } catch (e) { console.error('scanManager._showFinalPassModal error', e); }
     },
 
@@ -651,6 +724,26 @@
       try {
         const modal = document.getElementById('final-pass-modal');
         if (modal) modal.style.display = 'none';
+        // Ensure any renderer DOM blocker removed (legacy) and hide IPC overlay via main process
+        try {
+          const el = document.getElementById('final-pass-block-overlay'); if (el) { try { el.remove(); } catch(e){} }
+        } catch(e) {}
+        try {
+          if (window && window.ipcRenderer && typeof window.ipcRenderer.invoke === 'function') {
+            window.ipcRenderer.invoke('hide-system-overlay').catch(()=>{});
+          } else if (typeof require === 'function') {
+            try { const { ipcRenderer } = require('electron'); ipcRenderer.invoke('hide-system-overlay').catch(()=>{}); } catch(e){}
+          }
+        } catch (e) {}
+        try { const pwd = document.getElementById('final-pass-password-input'); if (pwd) pwd.value = ''; } catch(e) {}
+        // Ensure any system overlay is removed
+        try {
+          if (window && window.ipcRenderer && typeof window.ipcRenderer.invoke === 'function') {
+            window.ipcRenderer.invoke('hide-system-overlay').catch(()=>{});
+          } else if (typeof require === 'function') {
+            try { const { ipcRenderer } = require('electron'); ipcRenderer.invoke('hide-system-overlay').catch(()=>{}); } catch(e){}
+          }
+        } catch (e) {}
       } catch (e) { console.error('scanManager._hideFinalPassModal error', e); }
     },
 
