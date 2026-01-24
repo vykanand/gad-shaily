@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -45,8 +45,15 @@
       }
 
       body {
-        font-family: "Montserrat", system-ui, -apple-system, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial, sans-serif;
+        font-family:
+          "Montserrat",
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          "Helvetica Neue",
+          Arial,
+          sans-serif;
         background-color: var(--bg);
         color: var(--text-on-dark);
         display: flex;
@@ -443,7 +450,9 @@
         align-items: center;
         justify-content: center;
         padding: 20px;
-        transition: background-color 200ms ease, opacity 160ms ease;
+        transition:
+          background-color 200ms ease,
+          opacity 160ms ease;
       }
 
       .modal-content {
@@ -561,7 +570,9 @@
         margin-bottom: 16px;
         border-radius: 14px;
         cursor: pointer;
-        transition: transform 0.18s ease, box-shadow 0.18s ease,
+        transition:
+          transform 0.18s ease,
+          box-shadow 0.18s ease,
           background-color 0.12s ease;
         border: 1px solid rgba(255, 255, 255, 0.04);
         box-shadow: 0 8px 22px rgba(3, 10, 24, 0.14);
@@ -570,7 +581,8 @@
       .group-value-item:hover {
         background-color: rgba(31, 78, 121, 0.1);
         transform: translateY(-6px);
-        box-shadow: 0 18px 48px rgba(3, 10, 24, 0.32),
+        box-shadow:
+          0 18px 48px rgba(3, 10, 24, 0.32),
           0 0 18px rgba(0, 191, 165, 0.06);
       }
 
@@ -879,7 +891,7 @@
               const btn = document.getElementById("btn-start-server");
               const modal = document.getElementById("web-server-modal");
               const closeBtn = document.getElementById(
-                "btn-close-server-modal"
+                "btn-close-server-modal",
               );
               const startStop = document.getElementById("btn-start-stop");
               const genTls = document.getElementById("btn-generate-tls");
@@ -911,12 +923,11 @@
                 updateMasterBtn.addEventListener("click", async () => {
                   try {
                     // Ensure server is running before opening the Update Master modal
-                    const stCheck = await ipcRenderer.invoke(
-                      "get-server-status"
-                    );
+                    const stCheck =
+                      await ipcRenderer.invoke("get-server-status");
                     if (!stCheck || !stCheck.success || !stCheck.isRunning) {
                       window.alert(
-                        "Web server is not running. Start the web server before using Update Master."
+                        "Web server is not running. Start the web server before using Update Master.",
                       );
                       return;
                     }
@@ -944,7 +955,7 @@
                       const qResp = await fetch(
                         (st.url || (st.isRunning ? st.url : "")) +
                           "/api/qrcode?url=" +
-                          encodeURIComponent(masterUrl)
+                          encodeURIComponent(masterUrl),
                       );
                       const qj = await qResp.json();
                       if (qj && qj.success && qj.qr)
@@ -977,7 +988,7 @@
                   // also refresh auto-start setting
                   try {
                     const cfg = await ipcRenderer.invoke(
-                      "get-web-server-config"
+                      "get-web-server-config",
                     );
                     if (cfg && cfg.success && cfg.config && autostartCheckbox) {
                       autostartCheckbox.checked = !!cfg.config.autoStart;
@@ -1028,7 +1039,7 @@
                     // Try to restore previously saved displayAddress if present
                     try {
                       const cfg = await ipcRenderer.invoke(
-                        "get-web-server-config"
+                        "get-web-server-config",
                       );
                       if (
                         cfg &&
@@ -1039,7 +1050,7 @@
                         const saved = cfg.config.displayAddress;
                         // If an option with the saved address exists, select it
                         const opt = Array.from(selectIp.options).find(
-                          (o) => o.value === saved
+                          (o) => o.value === saved,
                         );
                         if (opt) selectIp.value = saved;
                       }
@@ -1086,7 +1097,7 @@
                       const addr = (selectIp && selectIp.value) || null;
                       const r = await ipcRenderer.invoke(
                         "start-web-server",
-                        addr
+                        addr,
                       );
                       if (r && r.success) {
                         await refreshStatus();
@@ -1111,7 +1122,7 @@
                   try {
                     genTls.disabled = true;
                     const r = await ipcRenderer.invoke(
-                      "regenerate-web-server-tls"
+                      "regenerate-web-server-tls",
                     );
                     genTls.disabled = false;
                     if (r && r.success) alert("Generated TLS certs");
@@ -1280,7 +1291,7 @@
 
         // Clear existing field rows (except title, scan-by, and verification)
         const existingRows = inputSection.querySelectorAll(
-          ".row:not(#scan-by-row)"
+          ".row:not(#scan-by-row)",
         );
         existingRows.forEach((r) => r.remove());
 
@@ -1448,7 +1459,7 @@
                             k &&
                             Object.prototype.hasOwnProperty.call(
                               candidates,
-                              k
+                              k,
                             ) &&
                             String(candidates[k] || "").trim() !== ""
                           ) {
@@ -1474,12 +1485,12 @@
                                 ck &&
                                 Object.prototype.hasOwnProperty.call(
                                   candidates,
-                                  ck
+                                  ck,
                                 ) &&
                                 String(candidates[ck] || "").trim() !== ""
                               ) {
                                 expectedVal = String(
-                                  candidates[ck] || ""
+                                  candidates[ck] || "",
                                 ).trim();
                                 break;
                               }
@@ -1519,7 +1530,7 @@
                 const searchVals = [expectedRaw, scannedRaw]
                   .filter(Boolean)
                   .map((s) =>
-                    (s || "").normalize ? s.normalize("NFKC").trim() : s
+                    (s || "").normalize ? s.normalize("NFKC").trim() : s,
                   );
                 if (searchVals.length && Array.isArray(window.masterRawRows)) {
                   for (let i = 0; i < window.masterRawRows.length; i++) {
@@ -1645,7 +1656,7 @@
               }
             } catch (e) {}
             html += `<td${cellAttrs} style="${cellStyle}">${String(
-              v || ""
+              v || "",
             )}</td>`;
           });
 
@@ -1659,10 +1670,10 @@
           const scanned = data.scannedRaw || "";
           const status = "NOT_MATCHED";
           html += `<td style="padding:6px 8px; border-top:1px solid rgba(255,255,255,0.06);">${escapeHtml(
-            String(scanBy || "")
+            String(scanBy || ""),
           )}</td>`;
           html += `<td style="padding:6px 8px; border-top:1px solid rgba(255,255,255,0.06);">${escapeHtml(
-            String(data.scannedRaw || "")
+            String(data.scannedRaw || ""),
           )}</td>`;
           html += `<td style="padding:6px 8px; border-top:1px solid rgba(255,255,255,0.06);">${status}</td>`;
 
@@ -1737,7 +1748,7 @@
                   const foundHi = (headerInfos || []).find(
                     (h) =>
                       h.name === matchedHeader ||
-                      h.norm === normalizeHeader(matchedHeader)
+                      h.norm === normalizeHeader(matchedHeader),
                   );
                   if (foundHi) matchedCol = foundHi.col || "";
                 }
@@ -1747,19 +1758,19 @@
             html += `<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.08);font-size:12px;color:#fff;">`;
             html += `<div style="font-weight:700; margin-bottom:6px;">NOT_MATCH Diagnostic</div>`;
             html += `<div style="display:flex;gap:12px;flex-wrap:wrap;"><div style="flex:1"><div style="opacity:0.9;font-weight:600">Expected (raw)</div><div style="margin-top:4px">${escapeHtml(
-              String(expectedRaw || "")
+              String(expectedRaw || ""),
             )}</div></div>`;
             html += `<div style="flex:1"><div style="opacity:0.9;font-weight:600">Scanned (raw)</div><div style="margin-top:4px">${escapeHtml(
-              String(scannedRawDiag || "")
+              String(scannedRawDiag || ""),
             )}</div></div></div>`;
             html += `<div style="margin-top:6px;opacity:0.85;font-size:11px">Normalized Expected: ${escapeHtml(
-              expectedNorm
+              expectedNorm,
             )}</div>`;
             html += `<div style="opacity:0.85;font-size:11px">Normalized Scanned: ${escapeHtml(
-              scannedNorm
+              scannedNorm,
             )}</div>`;
             html += `<div style="margin-top:6px;font-size:12px;font-weight:700">Matched Column: ${escapeHtml(
-              matchedHeader || "—"
+              matchedHeader || "—",
             )} ${matchedCol ? "(" + escapeHtml(matchedCol) + ")" : ""}</div>`;
             html += `</div>`;
           } catch (e) {}
@@ -1814,7 +1825,7 @@
               let primaryHeader = "";
               if (primaryId) {
                 const pf = (settings.fields || []).find(
-                  (ff) => ff.id === primaryId
+                  (ff) => ff.id === primaryId,
                 );
                 primaryHeader = (pf && (pf.header || pf.label || pf.id)) || "";
               }
@@ -1971,14 +1982,14 @@
           let colIndex = -1;
           if (field.headerCol) {
             colIndex = (headerInfos || []).findIndex(
-              (h) => h.col === field.headerCol
+              (h) => h.col === field.headerCol,
             );
           }
           // If not found, try to match by header name or normalized header
           if (colIndex === -1 && field.header) {
             const desiredNorm = normalizeHeader(field.header || "");
             const matchedHi = (headerInfos || []).find(
-              (h) => h.name === field.header || h.norm === desiredNorm
+              (h) => h.name === field.header || h.norm === desiredNorm,
             );
             if (matchedHi) colIndex = headerInfos.indexOf(matchedHi);
           }
@@ -1988,7 +1999,7 @@
             const matchedHi = (headerInfos || []).find(
               (h) =>
                 normalizeHeader(h.name || "") === labNorm ||
-                normalizeHeader(h.name || "").includes(labNorm)
+                normalizeHeader(h.name || "").includes(labNorm),
             );
             if (matchedHi) colIndex = headerInfos.indexOf(matchedHi);
           }
@@ -2029,18 +2040,18 @@
             let matchedHi = null;
             if (field.headerCol)
               matchedHi = (headerInfos || []).find(
-                (h) => h.col === field.headerCol
+                (h) => h.col === field.headerCol,
               );
             if (!matchedHi)
               matchedHi = (headerInfos || []).find(
-                (h) => h.name === field.header || h.norm === desiredNorm
+                (h) => h.name === field.header || h.norm === desiredNorm,
               );
             if (!matchedHi && field.label) {
               const labNorm = normalizeHeader(field.label || "");
               matchedHi = (headerInfos || []).find(
                 (h) =>
                   normalizeHeader(h.name || "") === labNorm ||
-                  normalizeHeader(h.name || "").includes(labNorm)
+                  normalizeHeader(h.name || "").includes(labNorm),
               );
             }
 
@@ -2099,7 +2110,7 @@
           if (field.header) {
             const desiredNorm = normalizeHeader(field.header || "");
             const matchedHi = (headerInfos || []).find(
-              (h) => h.name === field.header || h.norm === desiredNorm
+              (h) => h.name === field.header || h.norm === desiredNorm,
             );
             if (matchedHi) {
               if (
@@ -2240,7 +2251,7 @@
               col: h.col || "",
               norm: normalizeHeader(h.name || ""),
               ...h,
-            })
+            }),
           );
 
           console.log("Settings loaded:", settings);
@@ -2259,7 +2270,7 @@
           } catch (e) {
             console.error(
               "Failed to apply showMultiScanPanel to UI elements",
-              e
+              e,
             );
           }
           // Respect developer config to hide/show the server button
@@ -2294,7 +2305,7 @@
           fs.writeFileSync(
             "settings.json",
             JSON.stringify(out, null, 2),
-            "utf8"
+            "utf8",
           );
           console.log("Settings saved to settings.json");
         } catch (error) {
@@ -2336,7 +2347,7 @@
             const timestamp = new Date(
               (dateStr ? dateStr.split("/").reverse().join("-") : "") +
                 " " +
-                (timeStr || "")
+                (timeStr || ""),
             );
 
             // Resolve common fields using configured header names first, then legacy keys
@@ -2377,7 +2388,7 @@
           console.error("Error loading today's scan logs:", error);
           showNotification(
             "Error loading scan history. Please try again.",
-            "error"
+            "error",
           );
           return [];
         }
@@ -2544,7 +2555,7 @@
           console.error("Error saving error log in real-time:", error);
           showNotification(
             "Warning: Failed to save error scan log to file",
-            "error"
+            "error",
           );
         } finally {
           isSaving = false;
@@ -2593,21 +2604,21 @@
           // Sort by date/time descending
           logsToSave.sort((a, b) => {
             const dateA = new Date(
-              a.Date.split("/").reverse().join("-") + " " + a.Time
+              a.Date.split("/").reverse().join("-") + " " + a.Time,
             );
             const dateB = new Date(
-              b.Date.split("/").reverse().join("-") + " " + b.Time
+              b.Date.split("/").reverse().join("-") + " " + b.Time,
             );
             return dateB - dateA;
           });
 
           const result = await ipcRenderer.invoke("write-logs", logsToSave);
           console.log(
-            `Successfully saved ${logsToSave.length} logs to ${result.filePath}`
+            `Successfully saved ${logsToSave.length} logs to ${result.filePath}`,
           );
           showNotification(
             `Successfully exported ${logsToSave.length} scan logs`,
-            "info"
+            "info",
           );
         } catch (error) {
           console.error("Error in saveLogsToExcel:", error);
@@ -2666,7 +2677,7 @@
             "Comparing scanned code:",
             cleanedCode,
             "with expected value:",
-            expectedValue
+            expectedValue,
           );
 
           // Apply scan operation configured in settings (normalized, case-insensitive)
@@ -2704,7 +2715,7 @@
           } catch (e) {
             console.error(
               "Error evaluating scan operation, falling back to equality:",
-              e
+              e,
             );
             isMatch = String(cleanedCode || "") === String(expectedValue || "");
           }
@@ -2756,7 +2767,7 @@
                     matchedRowIdx =
                       (Array.isArray(masterRawRows) &&
                         masterRawRows.findIndex(
-                          (r) => r === currentSelectedRow
+                          (r) => r === currentSelectedRow,
                         )) ||
                       null;
                   } else {
@@ -2957,7 +2968,7 @@
             // Show notification for failed scan
             showNotification(
               "Scan does not match the part code. Please verify with PIN to continue.",
-              "error"
+              "error",
             );
           }
 
@@ -3013,7 +3024,7 @@
             targetTag,
             targetId,
             "readOnly:",
-            targetReadOnly
+            targetReadOnly,
           );
         }
 
@@ -3038,7 +3049,7 @@
                 targetTag,
                 targetId,
                 "readOnly:",
-                targetReadOnly
+                targetReadOnly,
               );
             e.preventDefault();
 
@@ -3062,7 +3073,7 @@
                 console.error("Error in handleScan:", error);
                 showNotification(
                   "Error processing scan. Please try again.",
-                  "error"
+                  "error",
                 );
               }
             } else {
@@ -3099,7 +3110,7 @@
               scanBuffer,
               "from target:",
               targetTag,
-              targetId
+              targetId,
             );
 
           // Clear existing timeout
@@ -3115,7 +3126,7 @@
                 scanBuffer,
                 "from target:",
                 targetTag,
-                targetId
+                targetId,
               );
             if (scanBuffer.length > 0) {
               const scannedCode = scanBuffer;
@@ -3128,7 +3139,7 @@
                 console.error("Error in handleScan (timeout):", error);
                 showNotification(
                   "Error processing scan. Please try again.",
-                  "error"
+                  "error",
                 );
               }
             }
@@ -3265,7 +3276,7 @@
                 } catch (e) {
                   console.warn(
                     "Could not re-open parts modal after PIN failure",
-                    e
+                    e,
                   );
                 }
               }
@@ -3294,7 +3305,7 @@
                 "scan-pending",
                 "scan-active",
                 "scan-passed",
-                "failed"
+                "failed",
               );
               el.style.background = "";
               el.style.color = "";
@@ -3308,7 +3319,7 @@
           // Generic cleanup for any residual markers
           document
             .querySelectorAll(
-              ".scan-failed, .failed, .reg-highlight, .regex-highlight"
+              ".scan-failed, .failed, .reg-highlight, .regex-highlight",
             )
             .forEach((node) => {
               try {
@@ -3371,7 +3382,7 @@
                 "scan-passed",
                 "scan-failed",
                 "failed",
-                "required"
+                "required",
               );
               // If the input has a value, ensure `required` is removed
               if (String(el.value || "").trim())
@@ -3447,7 +3458,7 @@
           input.value = document.getElementById("scan-by")?.value || "";
           console.log(
             "showScannerNameModal: prefill current name =",
-            input.value
+            input.value,
           );
           error.textContent = "";
           modal.style.display = "block";
@@ -3456,7 +3467,7 @@
           const close = (result = null) => {
             console.log(
               "showScannerNameModal: closing modal with result =",
-              result
+              result,
             );
             modal.style.display = "none";
             input.removeEventListener("keypress", onKey);
@@ -3593,7 +3604,7 @@
             fs.writeFileSync(
               "used-license.txt",
               JSON.stringify(usedLicenses, null, 2),
-              "utf8"
+              "utf8",
             );
             console.log("License key added to used licenses");
           }
@@ -3663,7 +3674,7 @@
 
           // If we get here, the format is invalid
           throw new Error(
-            "Invalid license format. Expected DD-MM-YYYY or base64 encoded date."
+            "Invalid license format. Expected DD-MM-YYYY or base64 encoded date.",
           );
         } catch (error) {
           console.error("Error parsing license:", error);
@@ -3741,7 +3752,7 @@
                 fs.writeFileSync("license.txt", btoa(expiryStr), "utf8");
                 console.log(
                   "License accepted via modal. Temporary expiry set to:",
-                  expiryStr
+                  expiryStr,
                 );
               } catch (e) {
                 console.error("Failed to write license expiry from modal:", e);
@@ -3776,7 +3787,7 @@
           } catch (e) {
             console.warn(
               "rebuildInputUI: failed to reconcile required classes",
-              e
+              e,
             );
           }
         };
@@ -3786,7 +3797,7 @@
           if (isLicenseUsed(newLicenseKey)) {
             console.log("This license key has already been used");
             return await showLicenseModal(
-              "This license key has already been used. Please enter a different key."
+              "This license key has already been used. Please enter a different key.",
             );
           }
           // If not used, mark it as used and grant a 7-day extension by writing expiry date
@@ -3803,7 +3814,7 @@
             fs.writeFileSync("license.txt", btoa(expiryStr), "utf8");
             console.log(
               "New license accepted. Temporary expiry set to:",
-              expiryStr
+              expiryStr,
             );
             // proceed with validated license
             try {
@@ -3826,7 +3837,7 @@
             } catch (err) {
               console.error("Fallback write also failed:", err);
               return await showLicenseModal(
-                "Failed to accept license. Please enter a different key."
+                "Failed to accept license. Please enter a different key.",
               );
             }
           }
@@ -3836,7 +3847,7 @@
           // Check if we have a valid license file
           if (!fs.existsSync("license.txt")) {
             return await showLicenseModal(
-              "No license found. Please enter a valid license key."
+              "No license found. Please enter a valid license key.",
             );
           }
 
@@ -3844,7 +3855,7 @@
 
           if (!licenseContent) {
             return await showLicenseModal(
-              "License file is empty. Please enter a valid license key."
+              "License file is empty. Please enter a valid license key.",
             );
           }
 
@@ -3854,7 +3865,7 @@
             licenseDateStr = parseLicenseContent(licenseContent);
           } catch (e) {
             return await showLicenseModal(
-              "Invalid license format. Please enter a valid license key."
+              "Invalid license format. Please enter a valid license key.",
             );
           }
 
@@ -3870,10 +3881,10 @@
 
           if (currentDate > licenseDate) {
             console.log(
-              `License expired. License was valid until: ${day}-${month}-${year}`
+              `License expired. License was valid until: ${day}-${month}-${year}`,
             );
             return await showLicenseModal(
-              `License expired on ${day}-${month}-${year}. Please enter a new license key.`
+              `License expired on ${day}-${month}-${year}. Please enter a new license key.`,
             );
           }
 
@@ -3890,7 +3901,7 @@
         } catch (error) {
           console.error("License check failed:", error);
           return await showLicenseModal(
-            "License check failed. Please enter a valid license key."
+            "License check failed. Please enter a valid license key.",
           );
         }
       }
@@ -3942,7 +3953,7 @@
         function showPartsModal() {
           if (!Array.isArray(masterRawRows) || masterRawRows.length === 0) {
             alert(
-              "No master data available. Please check the master.xlsx file."
+              "No master data available. Please check the master.xlsx file.",
             );
             return;
           }
@@ -4017,8 +4028,8 @@
                 const displayFields = Array.isArray(settings.displayFields)
                   ? settings.displayFields
                   : settings.displayField
-                  ? [settings.displayField]
-                  : [];
+                    ? [settings.displayField]
+                    : [];
                 const displayVals = (displayFields || []).map((fid) => ({
                   id: fid,
                   val: getValueFromRowStrict(item, fid) || "",
@@ -4028,7 +4039,7 @@
                   primaryValue: primaryVal,
                   displayValues: displayVals,
                 };
-              }
+              },
             );
           } catch (e) {
             console.warn("renderPartsList: failed debug snapshot", e);
@@ -4080,8 +4091,8 @@
               const displayFields = Array.isArray(settings.displayFields)
                 ? settings.displayFields
                 : settings.displayField
-                ? [settings.displayField]
-                : null;
+                  ? [settings.displayField]
+                  : null;
 
               if (displayFields && displayFields.length > 0) {
                 const mainId = displayFields[0];
@@ -4096,7 +4107,7 @@
                 if (appended.length > 0) {
                   // Use higher contrast and larger text for appended/bracketed values
                   displayContent += ` <span class="part-badge">(${appended.join(
-                    " | "
+                    " | ",
                   )})</span>`;
                 } else if (
                   !settings.primaryFields ||
@@ -4113,7 +4124,7 @@
                     (f) =>
                       `<span class="part-code">${
                         getValueFromRow(item, f.id) || "N/A"
-                      }</span>`
+                      }</span>`,
                   )
                   .join(" ");
               }
@@ -4140,6 +4151,7 @@
           levels: [],
           selections: [],
           currentFilteredRows: null,
+          searchTerms: [], // Store search term per level for independent search
         };
 
         function escapeHtml(s) {
@@ -4156,19 +4168,51 @@
         }
 
         function computeUniqueValues(rows, headerKey) {
+          // Robustly resolve a value for the grouping key using existing helpers,
+          // so it works for both raw array rows and object-mapped rows.
           const counts = new Map();
           (rows || []).forEach((r) => {
-            const v =
-              (r && (r[headerKey] !== undefined ? String(r[headerKey]) : "")) ||
-              "";
-            const key = String(v || "");
+            let v = "";
+            try {
+              // Try direct lookup by key
+              if (r && Object.prototype.hasOwnProperty.call(r, headerKey)) {
+                v = r[headerKey];
+              } else {
+                // Fall back to using field resolution via a temporary field descriptor
+                const tempField = { id: "__grp__", label: "__grp__", header: headerKey, headerCol: headerKey };
+                v = getValueFromRow(r, tempField.id);
+                if (!v) {
+                  // If headerKey is a column letter or name, try strict lookup via synthetic row map
+                  // Build a minimal synthetic field array context
+                  const desiredNorm = normalizeHeader(headerKey || "");
+                  const hi = (headerInfos || []).find(
+                    (h) => h.col === headerKey || h.name === headerKey || h.norm === desiredNorm,
+                  );
+                  if (hi) {
+                    if (Array.isArray(r)) {
+                      const idx = headerInfos.indexOf(hi);
+                      if (idx >= 0 && r[idx] !== undefined && r[idx] !== null) v = r[idx];
+                    } else if (r && typeof r === "object") {
+                      const tryKeys = [hi.uniqueKey, hi.col, hi.name, hi.norm].filter(Boolean);
+                      for (const k of tryKeys) {
+                        if (Object.prototype.hasOwnProperty.call(r, k)) {
+                          v = r[k];
+                          break;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              v = "";
+            }
+            const key = String(v !== undefined && v !== null ? v : "").trim();
             counts.set(key, (counts.get(key) || 0) + 1);
           });
           return Array.from(counts.entries())
             .map(([value, count]) => ({ value, count }))
-            .sort(
-              (a, b) => b.count - a.count || a.value.localeCompare(b.value)
-            );
+            .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
         }
 
         // Note: group reset button removed; group controls now reuse
@@ -4185,10 +4229,10 @@
           }
           if (lvl && typeof lvl === "object") {
             const key = String(
-              lvl.key || lvl.headerCol || lvl.header || ""
+              lvl.key || lvl.headerCol || lvl.header || "",
             ).trim();
             const label = String(
-              lvl.label || lvl.header || lvl.key || ""
+              lvl.label || lvl.header || lvl.key || "",
             ).trim();
             return { key, label: label || key };
           }
@@ -4200,6 +4244,7 @@
           const breadcrumb = document.getElementById("group-breadcrumb");
           const refreshBtn = document.getElementById("refresh-master-btn");
           const summary = document.getElementById("group-summary");
+          const searchBox = document.querySelector(".search-box");
 
           if (!groupControls || !breadcrumb || !refreshBtn)
             return renderPartsList(masterData);
@@ -4212,7 +4257,7 @@
             const sel = _groupState.selections[i];
             if (sel && sel.header) {
               rows = rows.filter(
-                (r) => String(r[sel.header] || "") === String(sel.value || "")
+                (r) => String(r[sel.header] || "") === String(sel.value || ""),
               );
             }
           }
@@ -4221,8 +4266,30 @@
           const lvlInfo = getGroupLevelInfo(levelIndex);
           const headerKey = lvlInfo.key;
           const headerLabel = lvlInfo.label;
-          const uniques = computeUniqueValues(rows, headerKey);
+          // Apply per-level saved search term to this level's rows before computing uniques
+          const savedSearchTerm = _groupState.searchTerms[levelIndex] || "";
+          let effectiveRows = rows;
+          if (savedSearchTerm) {
+            const s = String(savedSearchTerm).toLowerCase();
+            try {
+              effectiveRows = rows.filter((item) => {
+                return (settings.fields || []).some((f) => {
+                  try {
+                    const v = String(getValueFromRow(item, f.id) || "").toLowerCase();
+                    return v.includes(s);
+                  } catch (e) {
+                    return false;
+                  }
+                });
+              });
+            } catch (e) {
+              effectiveRows = rows;
+            }
+          }
+          _groupState.currentFilteredRows = effectiveRows;
+          const uniques = computeUniqueValues(effectiveRows, headerKey);
 
+          // Update breadcrumb with level indicator
           breadcrumb.textContent =
             _groupState.selections.map((s) => s.value).join(" » ") ||
             `Level ${levelIndex + 1}: ${headerLabel}`;
@@ -4246,6 +4313,11 @@
             }
           } catch (e) {}
 
+          // Restore search term for this level if it exists
+          if (searchBox && searchBox.value !== savedSearchTerm) {
+            searchBox.value = savedSearchTerm;
+          }
+
           partsList.innerHTML = uniques
             .map((u) => {
               const pct = rows.length
@@ -4261,7 +4333,7 @@
                 <div class="part-info" style="flex: 1;">
                   <div class="group-card-title">${escapeHtml(titleText)}</div>
                   <div class="group-card-subtitle">Group value for <b>${escapeHtml(
-                    headerLabel
+                    headerLabel,
                   )}</b></div>
                 </div>
                 <div class="group-card-meta">
@@ -4274,6 +4346,10 @@
 
           partsList.querySelectorAll(".group-value-item").forEach((li) => {
             li.addEventListener("click", () => {
+              // Save current search term before navigating
+              if (searchBox) {
+                _groupState.searchTerms[levelIndex] = searchBox.value || "";
+              }
               const value = decodeURIComponent(li.dataset.valueEnc || "");
               const header = decodeURIComponent(li.dataset.headerEnc || "");
               _groupState.selections[levelIndex] = {
@@ -4285,8 +4361,8 @@
               if (nextIndex >= (_groupState.levels || []).length) {
                 const filtered = masterData.filter((r) =>
                   _groupState.selections.every(
-                    (s) => String(r[s.header] || "") === String(s.value || "")
-                  )
+                    (s) => String(r[s.header] || "") === String(s.value || ""),
+                  ),
                 );
                 renderPartsList(filtered);
               } else {
@@ -4351,7 +4427,7 @@
             return settings.fields.some((f) => {
               try {
                 const v = String(
-                  getValueFromRow(item, f.id) || ""
+                  getValueFromRow(item, f.id) || "",
                 ).toLowerCase();
                 return v.includes(search);
               } catch (e) {
@@ -4367,7 +4443,8 @@
             _groupState.selections.length < (_groupState.levels || []).length
           ) {
             const levelIndex = _groupState.selections.length;
-            const headerKey = _groupState.levels[levelIndex];
+            const lvlInfo = getGroupLevelInfo(levelIndex);
+            const headerKey = lvlInfo.key;
             const uniques = computeUniqueValues(filtered, headerKey);
             const summary = document.getElementById("group-summary");
             try {
@@ -4391,24 +4468,24 @@
               .map(
                 (u) => `
               <li class="group-value-item" data-value-enc="${encodeURIComponent(
-                String(u.value || "")
+                String(u.value || ""),
               )}" data-header-enc="${encodeURIComponent(
-                  String(headerKey || "")
-                )}">
+                String(headerKey || ""),
+              )}">
                 <div class="part-info" style="flex: 1;">
                   <div class="group-card-title">${escapeHtml(
                     String(u.value || "").trim()
                       ? String(u.value)
-                      : `No ${headerKey}`
+                      : `No ${headerKey}`,
                   )}</div>
                   <div class="group-card-subtitle">Group value for <b>${escapeHtml(
-                    headerKey
+                    headerKey,
                   )}</b></div>
                 </div>
                   <div class="group-card-meta">
                     <div class="group-meta-badge">${u.count} items</div>
                   </div>
-              </li>`
+              </li>`,
               )
               .join("");
             partsList.querySelectorAll(".group-value-item").forEach((li) => {
@@ -4425,8 +4502,9 @@
                 if (nextIndex >= _groupState.levels.length) {
                   const filteredParts = masterData.filter((r) =>
                     _groupState.selections.every(
-                      (s) => String(r[s.header] || "") === String(s.value || "")
-                    )
+                      (s) =>
+                        String(r[s.header] || "") === String(s.value || ""),
+                    ),
                   );
                   renderPartsList(filteredParts);
                 } else {
@@ -4507,7 +4585,7 @@
                   } catch (e) {}
                   try {
                     const pc = document.getElementById(
-                      "part-code-status-value"
+                      "part-code-status-value",
                     );
                     if (pc) {
                       pc.textContent = "";
@@ -4585,7 +4663,16 @@
 
         if (searchBox) {
           searchBox.addEventListener("input", (e) => {
-            filterParts(e.target.value);
+            const searchTerm = e.target.value || "";
+            // Save search term for the current level if grouping is active
+            const levelIndex =
+              _groupState && _groupState.selections
+                ? _groupState.selections.length
+                : 0;
+            if (_groupState && Array.isArray(_groupState.searchTerms)) {
+              _groupState.searchTerms[levelIndex] = searchTerm;
+            }
+            filterParts(searchTerm);
           });
         } else {
           console.warn("parts modal search box not found");
@@ -4679,7 +4766,7 @@
                       "scan-active",
                       "scan-pending",
                       "scan-passed",
-                      "scan-failed"
+                      "scan-failed",
                     );
                     // remove inline highlight styles if present
                     el.style.background = "";
@@ -4763,9 +4850,9 @@
                               hi && hi.uniqueKey
                                 ? hi.uniqueKey
                                 : hi && hi.norm
-                                ? hi.norm
-                                : ""
-                            ] || ""
+                                  ? hi.norm
+                                  : ""
+                            ] || "",
                           );
                         }
                       }
@@ -4890,10 +4977,10 @@
           const modal = document.getElementById("settings-modal");
           const container = document.getElementById("mappings-container");
           const primaryContainer = document.getElementById(
-            "primary-field-container"
+            "primary-field-container",
           );
           const displayContainer = document.getElementById(
-            "display-field-container"
+            "display-field-container",
           );
           const scanOpSelect = document.getElementById("scan-op-select");
 
@@ -4917,7 +5004,7 @@
             if (
               f.header &&
               !headersList.find(
-                (h) => h.name === f.header && h.col === f.headerCol
+                (h) => h.name === f.header && h.col === f.headerCol,
               )
             ) {
               headersList.push({
@@ -5007,7 +5094,7 @@
               if (name || col) {
                 if (
                   !settings.removedHeaders.find(
-                    (r) => (r.col || "") === col && (r.name || "") === name
+                    (r) => (r.col || "") === col && (r.name || "") === name,
                   )
                 ) {
                   settings.removedHeaders.push({
@@ -5024,12 +5111,12 @@
                   (headerInfos || []).find(
                     (h) =>
                       normalizeHeader(h.name || "") ===
-                      normalizeHeader(sel || "")
+                      normalizeHeader(sel || ""),
                   );
                 if (
                   hi &&
                   !settings.removedHeaders.find(
-                    (r) => r.col === hi.col && r.name === hi.name
+                    (r) => r.col === hi.col && r.name === hi.name,
                   )
                 ) {
                   settings.removedHeaders.push({
@@ -5151,10 +5238,10 @@
                   arr.findIndex(
                     (x) =>
                       `${(x.col || "").trim()}||${(x.name || "").trim()}` ===
-                      key
+                      key,
                   ) === i
                 );
-              }
+              },
             );
             hiddenList.innerHTML = "";
             (settings.removedHeaders || []).forEach((h, idx) => {
@@ -5241,7 +5328,7 @@
             try {
               container.parentNode.insertBefore(
                 groupingContainer,
-                container.nextSibling
+                container.nextSibling,
               );
             } catch (e) {}
 
@@ -5319,8 +5406,8 @@
                   (settings.fields &&
                     settings.fields[0] &&
                     settings.fields[0].id) ||
-                    ""
-                )
+                    "",
+                ),
               );
             });
           })();
@@ -5356,7 +5443,7 @@
                     (h) =>
                       h.name === selVal ||
                       h.col === selVal ||
-                      h.norm === normSel
+                      h.norm === normSel,
                   );
                 if (hi) {
                   headerName = hi.name || "";
@@ -5380,36 +5467,36 @@
 
           // Read primary scan field(s), display field, and scan operation
           const primaryContainerElem = document.getElementById(
-            "primary-field-container"
+            "primary-field-container",
           );
           const selectedPrimary = primaryContainerElem
             ? Array.from(
                 primaryContainerElem.querySelectorAll(
-                  'input[type="checkbox"]:checked'
-                )
+                  'input[type="checkbox"]:checked',
+                ),
               ).map((o) => o.value)
             : [];
           settings.primaryFields = selectedPrimary.length
             ? selectedPrimary
             : settings.fields[0]
-            ? [settings.fields[0].id]
-            : [];
+              ? [settings.fields[0].id]
+              : [];
           // Read display fields from checkboxes (allow multiple)
           const displayContainerElem = document.getElementById(
-            "display-field-container"
+            "display-field-container",
           );
           const selectedDisplay = displayContainerElem
             ? Array.from(
                 displayContainerElem.querySelectorAll(
-                  'input[type="checkbox"]:checked'
-                )
+                  'input[type="checkbox"]:checked',
+                ),
               ).map((o) => o.value)
             : [];
           settings.displayFields = selectedDisplay.length
             ? selectedDisplay
             : settings.fields[0]
-            ? [settings.fields[0].id]
-            : [];
+              ? [settings.fields[0].id]
+              : [];
           // keep legacy single value for compatibility
           settings.displayField = settings.displayFields[0] || "";
           settings.scanOperation =
@@ -5422,7 +5509,7 @@
             const levelsDiv = document.getElementById("grouping-levels");
             if (levelsDiv) {
               const rows = Array.from(
-                levelsDiv.querySelectorAll("div[data-group-level]")
+                levelsDiv.querySelectorAll("div[data-group-level]"),
               );
               const groupingFields = rows
                 .map((r) => {
@@ -5430,7 +5517,7 @@
                   const fid = sel ? sel.value : null;
                   if (!fid) return null;
                   const f = (settings.fields || []).find(
-                    (x) => x.id === fid
+                    (x) => x.id === fid,
                   ) || { id: fid, label: fid };
                   return {
                     id: f.id,
@@ -5477,14 +5564,16 @@
           .addEventListener(
             "click",
             () =>
-              (document.getElementById("settings-modal").style.display = "none")
+              (document.getElementById("settings-modal").style.display =
+                "none"),
           );
         document
           .getElementById("cancel-settings")
           .addEventListener(
             "click",
             () =>
-              (document.getElementById("settings-modal").style.display = "none")
+              (document.getElementById("settings-modal").style.display =
+                "none"),
           );
 
         // Refresh header mappings from master Excel
@@ -5529,7 +5618,7 @@
 
             // Build dynamic column list using configured fields and include scan-by
             const configuredHeaders = (settings.fields || []).map(
-              (f) => f.header || f.label || f.id
+              (f) => f.header || f.label || f.id,
             );
             let columns = [
               "Date",
@@ -5558,11 +5647,11 @@
                   .map((col) => {
                     if (col === "Date")
                       return `<td>${log.timestamp.toLocaleDateString(
-                        "en-GB"
+                        "en-GB",
                       )}</td>`;
                     if (col === "Time")
                       return `<td>${log.timestamp.toLocaleTimeString(
-                        "en-GB"
+                        "en-GB",
                       )}</td>`;
                     // Prefer raw saved value (from file), fallback to computed fields
                     const raw = log.raw || {};
@@ -5586,7 +5675,7 @@
                       (settings.displayField &&
                         (
                           (settings.fields || []).find(
-                            (f) => f.id === settings.displayField
+                            (f) => f.id === settings.displayField,
                           ) || {}
                         ).header)
                     )
@@ -5693,10 +5782,10 @@
                 // Sort by date and time descending (newest first)
                 logsToExport.sort((a, b) => {
                   const dateA = new Date(
-                    a["Date"].split("/").reverse().join("-") + " " + a["Time"]
+                    a["Date"].split("/").reverse().join("-") + " " + a["Time"],
                   );
                   const dateB = new Date(
-                    b["Date"].split("/").reverse().join("-") + " " + b["Time"]
+                    b["Date"].split("/").reverse().join("-") + " " + b["Time"],
                   );
                   return dateB - dateA;
                 });
@@ -5704,20 +5793,20 @@
                 try {
                   const result = await ipcRenderer.invoke(
                     "write-logs",
-                    logsToExport
+                    logsToExport,
                   );
                   console.log(
-                    `Successfully exported ${logsToExport.length} today's logs to ${result.filePath}`
+                    `Successfully exported ${logsToExport.length} today's logs to ${result.filePath}`,
                   );
                   showNotification(
                     `Successfully exported ${logsToExport.length} today's scan logs`,
-                    "info"
+                    "info",
                   );
                 } catch (error) {
                   console.error("Error exporting today's logs:", error);
                   showNotification(
                     "Error exporting logs. Please try again.",
-                    "error"
+                    "error",
                   );
                 }
               });
