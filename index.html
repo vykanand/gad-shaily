@@ -329,6 +329,13 @@
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
       }
 
+      .changeover-button.small {
+        padding: 6px 10px;
+        min-width: 90px;
+        font-size: 14px;
+        font-weight: 800;
+      }
+
       .status {
         margin-top: 20px;
         color: #fff;
@@ -6053,6 +6060,13 @@
               title="Click to set scanner name"
               style="cursor: pointer"
             />
+            <button
+              id="btn-refresh-scan"
+              class="changeover-button small"
+              style="margin-left: 8px"
+            >
+              Refresh Scan
+            </button>
           </div>
 
           <div id="verification-section" class="verification">
@@ -6602,6 +6616,69 @@
             } catch (e) {}
           } catch (e) {}
         });
+        // Refresh Scan button: reset entire multi-scan to pending
+        try {
+          const refreshBtn = document.getElementById("btn-refresh-scan");
+          if (refreshBtn) {
+            refreshBtn.addEventListener("click", function () {
+              try {
+                if (window.scanManager) {
+                  // Reset matched state
+                  window.scanManager.scanSession.matchedFields = new Set();
+                  window.scanManager.scanSession._manualActive = null;
+                  window.scanManager.scanSession._scanSequence = [];
+                  window.scanManager.scanSession._currentScanRecord = null;
+                  // Ensure panel visible
+                  try {
+                    const p = document.getElementById("multi-scan-panel");
+                    if (p) p.style.display = "block";
+                  } catch (e) {}
+                  // Update UI
+                  try {
+                    window.scanManager._highlightPendingFields();
+                  } catch (e) {}
+                  try {
+                    window.scanManager._updatePanelStatus();
+                  } catch (e) {}
+                  try {
+                    window.scanManager._showReadyState();
+                  } catch (e) {}
+
+                  // Broadcast session reset to mobile clients (best-effort)
+                  try {
+                    const ipcRenderer =
+                      require &&
+                      require("electron") &&
+                      require("electron").ipcRenderer;
+                    try {
+                      ipcRenderer &&
+                        ipcRenderer.invoke &&
+                        ipcRenderer.invoke("broadcast-session-update", {
+                          selectedRowIndex:
+                            window.currentSelectedRowIndex || null,
+                          requiredFields:
+                            window.scanManager.scanSession.requiredFields || [],
+                          matchedFields: Array.from(
+                            window.scanManager.scanSession.matchedFields || [],
+                          ),
+                          activeField:
+                            window.scanManager.scanSession._manualActive ||
+                            (window.scanManager.scanSession.requiredFields &&
+                              window.scanManager.scanSession
+                                .requiredFields[0]) ||
+                            null,
+                        });
+                    } catch (e) {}
+                  } catch (e) {}
+                }
+              } catch (e) {
+                console.error("refresh-scan handler error", e);
+              }
+            });
+          }
+        } catch (e) {
+          console.error("refresh-scan init failed", e);
+        }
       } catch (e) {}
     </script>
     <script src="scan-manager.js"></script>
