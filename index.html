@@ -316,6 +316,19 @@
         width: 140px;
       }
 
+      /* Changeover button styling (light yellow) */
+      .changeover-button {
+        background: linear-gradient(90deg, #fff9c4, #ffd54f);
+        color: var(--accent-yellow-text);
+        border: none;
+        padding: 10px 14px;
+        font-weight: 800;
+        border-radius: 6px;
+        cursor: pointer;
+        min-width: 120px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+      }
+
       .status {
         margin-top: 20px;
         color: #fff;
@@ -916,6 +929,11 @@
                 m.style.zIndex = 10030;
                 m.innerHTML = `<div class="modal-content" style="max-width:480px"><div class="modal-header"><h2 class="modal-title">Update Master</h2></div><div style="padding:16px"><div id="master-link-status">Loading...</div><div id="master-link-qr" style="margin-top:8px"></div><div style="margin-top:12px"><button id="master-open-link">Open Link</button><button id="master-close" style="margin-left:8px">Close</button></div></div></div>`;
                 document.body.appendChild(m);
+                // Attach focus management for accessibility and to avoid focus leaks
+                try {
+                  if (window.attachModalFocusBehavior)
+                    window.attachModalFocusBehavior(m);
+                } catch (e) {}
                 return m;
               }
 
@@ -4179,21 +4197,35 @@
                 v = r[headerKey];
               } else {
                 // Fall back to using field resolution via a temporary field descriptor
-                const tempField = { id: "__grp__", label: "__grp__", header: headerKey, headerCol: headerKey };
+                const tempField = {
+                  id: "__grp__",
+                  label: "__grp__",
+                  header: headerKey,
+                  headerCol: headerKey,
+                };
                 v = getValueFromRow(r, tempField.id);
                 if (!v) {
                   // If headerKey is a column letter or name, try strict lookup via synthetic row map
                   // Build a minimal synthetic field array context
                   const desiredNorm = normalizeHeader(headerKey || "");
                   const hi = (headerInfos || []).find(
-                    (h) => h.col === headerKey || h.name === headerKey || h.norm === desiredNorm,
+                    (h) =>
+                      h.col === headerKey ||
+                      h.name === headerKey ||
+                      h.norm === desiredNorm,
                   );
                   if (hi) {
                     if (Array.isArray(r)) {
                       const idx = headerInfos.indexOf(hi);
-                      if (idx >= 0 && r[idx] !== undefined && r[idx] !== null) v = r[idx];
+                      if (idx >= 0 && r[idx] !== undefined && r[idx] !== null)
+                        v = r[idx];
                     } else if (r && typeof r === "object") {
-                      const tryKeys = [hi.uniqueKey, hi.col, hi.name, hi.norm].filter(Boolean);
+                      const tryKeys = [
+                        hi.uniqueKey,
+                        hi.col,
+                        hi.name,
+                        hi.norm,
+                      ].filter(Boolean);
                       for (const k of tryKeys) {
                         if (Object.prototype.hasOwnProperty.call(r, k)) {
                           v = r[k];
@@ -4212,7 +4244,9 @@
           });
           return Array.from(counts.entries())
             .map(([value, count]) => ({ value, count }))
-            .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+            .sort(
+              (a, b) => b.count - a.count || a.value.localeCompare(b.value),
+            );
         }
 
         // Note: group reset button removed; group controls now reuse
@@ -4275,7 +4309,9 @@
               effectiveRows = rows.filter((item) => {
                 return (settings.fields || []).some((f) => {
                   try {
-                    const v = String(getValueFromRow(item, f.id) || "").toLowerCase();
+                    const v = String(
+                      getValueFromRow(item, f.id) || "",
+                    ).toLowerCase();
                     return v.includes(s);
                   } catch (e) {
                     return false;
@@ -6063,6 +6099,21 @@
               <label for="time">Time</label>
               <input type="text" id="time" value="15:44:22" readonly />
             </div>
+
+            <div id="changeover-box" class="info-box">
+              <label for="btn-changeover">Changeover</label>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                "
+              >
+                <button id="btn-changeover" class="changeover-button">
+                  Changeover
+                </button>
+              </div>
+            </div>
           </div>
 
           <div id="overall-status" class="status">Over All Scan Status</div>
@@ -6555,5 +6606,192 @@
     </script>
     <script src="scan-manager.js"></script>
     <script src="load-master-data.js"></script>
+    <script>
+      // Modal focus manager: trap focus inside modal, restore focus on close
+      (function () {
+        function isVisible(elem) {
+          return !!(
+            (elem && elem.offsetWidth) ||
+            elem.offsetHeight ||
+            elem.getClientRects().length
+          );
+        }
+
+        function getFocusable(container) {
+          if (!container) return [];
+          return Array.from(
+            container.querySelectorAll(
+              'a[href], area[href], input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])',
+            ),
+          ).filter((el) => el.offsetParent !== null);
+        }
+
+        function attachModalFocusBehavior(modal) {
+          try {
+            if (!modal || modal.__focusBehaviorAttached) return;
+            modal.__focusBehaviorAttached = true;
+            let lastActive = null;
+
+            function onKeyDown(e) {
+              if (e.key === "Escape") {
+                // try to close modal if close button exists or hide it
+                const close = modal.querySelector(
+                  '[data-modal-close], .close, button[aria-label="close"], button[id*="close"]',
+                );
+                if (close && typeof close.click === "function") {
+                  close.click();
+                } else {
+                  modal.style.display = "none";
+                }
+                e.preventDefault();
+                return;
+              }
+              if (e.key !== "Tab") return;
+              const focusables = getFocusable(modal);
+              if (focusables.length === 0) {
+                e.preventDefault();
+                return;
+              }
+              const first = focusables[0];
+              const last = focusables[focusables.length - 1];
+              if (e.shiftKey) {
+                if (document.activeElement === first) {
+                  last.focus();
+                  e.preventDefault();
+                }
+              } else {
+                if (document.activeElement === last) {
+                  first.focus();
+                  e.preventDefault();
+                }
+              }
+            }
+
+            function onFocusIn(e) {
+              if (!modal.contains(e.target)) {
+                const focusables = getFocusable(modal);
+                if (focusables.length) focusables[0].focus();
+              }
+            }
+
+            // watch for display changes: when opened, save activeElement and focus first focusable
+            const observer = new MutationObserver(() => {
+              try {
+                const disp = window.getComputedStyle(modal).display;
+                if (disp !== "none" && isVisible(modal)) {
+                  lastActive = document.activeElement;
+                  const focusables = getFocusable(modal);
+                  if (focusables.length) {
+                    try {
+                      focusables[0].focus();
+                    } catch (e) {}
+                  } else {
+                    try {
+                      modal.setAttribute("tabindex", "-1");
+                      modal.focus();
+                    } catch (e) {}
+                  }
+                  document.addEventListener("keydown", onKeyDown);
+                  document.addEventListener("focusin", onFocusIn);
+                } else {
+                  // closed -> restore focus
+                  document.removeEventListener("keydown", onKeyDown);
+                  document.removeEventListener("focusin", onFocusIn);
+                  try {
+                    if (lastActive && typeof lastActive.focus === "function")
+                      lastActive.focus();
+                  } catch (e) {}
+                }
+              } catch (e) {}
+            });
+
+            observer.observe(modal, {
+              attributes: true,
+              attributeFilter: ["style", "class"],
+            });
+
+            // If modal already visible, initialize focus now
+            try {
+              if (
+                isVisible(modal) &&
+                window.getComputedStyle(modal).display !== "none"
+              ) {
+                lastActive = document.activeElement;
+                const focusables = getFocusable(modal);
+                if (focusables.length) focusables[0].focus();
+                document.addEventListener("keydown", onKeyDown);
+                document.addEventListener("focusin", onFocusIn);
+              }
+            } catch (e) {}
+          } catch (e) {
+            console.error("attachModalFocusBehavior error", e);
+          }
+        }
+
+        // expose globally
+        window.attachModalFocusBehavior = attachModalFocusBehavior;
+
+        // Attach to any existing modals on DOMContentLoaded
+        document.addEventListener("DOMContentLoaded", function () {
+          try {
+            const modals = document.querySelectorAll(".modal");
+            modals.forEach((m) => attachModalFocusBehavior(m));
+          } catch (e) {}
+        });
+      })();
+    </script>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        try {
+          const btn = document.getElementById("btn-changeover");
+          if (!btn) return;
+          btn.addEventListener("click", async function () {
+            try {
+              // Reset current scan session state
+              try {
+                if (window.scanManager) {
+                  window.scanManager.scanSession.matchedFields = new Set();
+                  window.scanManager.scanSession._manualActive = null;
+                  window.scanManager.scanSession._scanSequence = [];
+                  window.scanManager.scanSession._currentScanRecord = null;
+                  try {
+                    window.scanManager.startSessionForCurrentPart();
+                  } catch (e) {}
+                  try {
+                    window.scanManager._highlightPendingFields();
+                  } catch (e) {}
+                  try {
+                    window.scanManager._updatePanelStatus();
+                  } catch (e) {}
+                  try {
+                    window.scanManager._showReadyState();
+                  } catch (e) {}
+                }
+              } catch (e) {
+                console.error("changeover: reset error", e);
+              }
+
+              // Reuse existing Master button behavior to open the Master list modal
+              const masterListBtn = document.getElementById("btn-master");
+              if (masterListBtn && typeof masterListBtn.click === "function") {
+                masterListBtn.click();
+              } else {
+                // Fallback: attempt to trigger the Update Master modal as a last resort
+                try {
+                  const updateBtn =
+                    document.getElementById("btn-update-master");
+                  if (updateBtn && typeof updateBtn.click === "function")
+                    updateBtn.click();
+                } catch (e) {}
+              }
+            } catch (err) {
+              console.error("changeover click handler failed", err);
+            }
+          });
+        } catch (e) {
+          console.error("changeover init failed", e);
+        }
+      });
+    </script>
   </body>
 </html>

@@ -402,6 +402,16 @@
         this.scanSession._manualActive = fid;
         const el = document.getElementById(fid);
         if (el) {
+          // If this field was previously marked passed, allow re-verification by
+          // removing its passed class and removing it from matchedFields set.
+          try {
+            if (el.classList.contains('scan-passed')) el.classList.remove('scan-passed');
+          } catch (e) {}
+          try {
+            if (this.scanSession.matchedFields && this.scanSession.matchedFields.has(fid)) {
+              try { this.scanSession.matchedFields.delete(fid); } catch (e) { /* ignore */ }
+            }
+          } catch (e) {}
           el.classList.remove('scan-pending', 'scan-failed');
           el.classList.add('scan-active');
           try { if (window.safeFocus) window.safeFocus(el); else el.focus && el.focus(); } catch (e) {}
@@ -631,6 +641,7 @@
         box.appendChild(btn);
         overlay.appendChild(box);
         document.body.appendChild(overlay);
+        try { if (window && typeof window.attachModalFocusBehavior === 'function') window.attachModalFocusBehavior(overlay); } catch(e) {}
       } catch (e) {
         console.error('scanManager: failed creating final-pass modal', e);
       }
@@ -960,8 +971,7 @@
               const scanQty = document.getElementById("scan-qty");
               if (scanQty) scanQty.value = String(Number(scanQty.value) + 1).padStart(5, "0");
 
-              // Clear visuals after a short delay for final pass
-                setTimeout(() => { try { this._showReadyState(); } catch(e) {} }, 1000);
+              // Keep the final-pass visuals displayed (do not auto-clear to ready)
 
               // Final save (optional)
               try {
@@ -986,9 +996,8 @@
               console.error('Error showing PASS UI:', e);
             }
 
-            // Preserve passed highlights briefly, then show proceed modal so operator can continue
+            // Preserve passed highlights and keep overall/pass UI as All Passed (no modal)
             try { this._updatePanelStatus(); } catch (e) {}
-            try { this._showFinalPassModal(); } catch (e) { console.error('failed to show final-pass modal', e); }
             return;
           }
 
