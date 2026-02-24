@@ -2,6 +2,9 @@
 window.loadMasterDataExternal = async function loadMasterDataExternal(forceReload = false) {
   try {
     console.log("loadMasterData called, forceReload=", !!forceReload);
+    // Ask main process for the master.xlsx file path and log it
+    const masterFilePath = await ipcRenderer.invoke('get-master-file-path');
+    console.log('[App Start] master.xlsx file path:', masterFilePath);
     const rawData = await ipcRenderer.invoke("read-master-data");
     if (!rawData || !rawData.length) {
       console.error("Failed to read master data");
@@ -12,6 +15,8 @@ window.loadMasterDataExternal = async function loadMasterDataExternal(forceReloa
 
     // Get the headers from the first row
     const headers = rawData[0] || [];
+    // Log the exact raw header row as read from Excel
+    console.log('[App Start] RAW HEADER ROW from Excel:', headers);
     availableHeaders = headers.map((h) => String(h || ""));
     // Build headerInfos with column addresses and unique keys to avoid duplicate header names
     // First compute normalized name counts so we can make duplicate-safe keys
@@ -67,6 +72,10 @@ window.loadMasterDataExternal = async function loadMasterDataExternal(forceReloa
       return obj;
     });
 
+
+    // Log availableHeaders and masterRawRows for debugging
+    console.log("[App Start] availableHeaders:", availableHeaders);
+    console.log("[App Start] masterRawRows:", masterRawRows);
     console.log("Processed masterData rows:", masterData.length);
 
     // Provide detailed debug snapshot for developers to inspect what was loaded

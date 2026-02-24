@@ -1,37 +1,19 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
-const path = require('path');
-const fs = require('fs');
-const XLSX = require('xlsx');
-
-// Main-process debug gate. Set process.env.APP_DEBUG=1 to enable verbose logs.
-const APP_DEBUG = !!process.env.APP_DEBUG;
-if (!APP_DEBUG) {
-  try {
-    console.log = function() {};
-    console.info = function() {};
-    console.warn = function() {};
-  } catch (e) {}
-}
-
 // Function to read Excel file with original format preservation
 async function readExcelFile(filePath) {
   try {
     const buffer = fs.readFileSync(filePath);
     const workbook = XLSX.read(buffer, { type: 'buffer' });
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-    
     // Get the range of the sheet
     const range = XLSX.utils.decode_range(firstSheet['!ref']);
     const data = [];
     const headers = [];
-
     // Find column headers
     for (let C = range.s.c; C <= range.e.c; ++C) {
       const cell = firstSheet[XLSX.utils.encode_cell({r: 0, c: C})];
       headers[C] = cell?.v?.toString().trim() || '';
     }
     data.push(headers);
-
     // Read data rows
     for (let R = range.s.r + 1; R <= range.e.r; ++R) {
       const row = [];
@@ -43,7 +25,6 @@ async function readExcelFile(filePath) {
         data.push(row);
       }
     }
-    
     return data;
   } catch (error) {
     console.error('Error reading Excel file:', error);
@@ -65,19 +46,16 @@ async function writeExcelFile(filePath, newData) {
         console.log('Could not read existing file, starting fresh');
       }
     }
-
     // Combine existing and new data, removing duplicates
     const combinedData = [...newData, ...existingData].filter((item, index, self) =>
       index === self.findIndex((t) => 
         t['Time'] === item['Time'] && t['Scanned Code'] === item['Scanned Code']
       )
     );
-
     // Create and format worksheet
     const ws = XLSX.utils.json_to_sheet(combinedData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Scan Logs');
-
     // Auto-size columns
     const colWidths = {};
     const columnNames = Object.keys(combinedData[0] || {});
@@ -87,7 +65,6 @@ async function writeExcelFile(filePath, newData) {
       colWidths[col] = Math.max(...allValues.map(v => v.length)) + 2;
     });
     ws['!cols'] = columnNames.map(col => ({ wch: colWidths[col] }));
-
     // Write file
     XLSX.writeFile(wb, filePath);
     return { success: true, count: combinedData.length };
@@ -96,11 +73,24 @@ async function writeExcelFile(filePath, newData) {
     throw error;
   }
 }
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const XLSX = require('xlsx');
 
-// Register IPC handlers immediately on app start
+// Main-process debug gate. Set process.env.APP_DEBUG=1 to enable verbose logs.
+const APP_DEBUG = !!process.env.APP_DEBUG;
+if (!APP_DEBUG) {
+  try {
+    console.log = function() {};
+    console.info = function() {};
+    console.warn = function() {};
+  } catch (e) {}
+}
+
 // Use project working directory when running unpackaged so master.xlsx
 // in the project root is picked up (same behaviour as before).
-const rootPath = app.isPackaged
+const rootPath = app && app.isPackaged
   ? path.dirname(app.getPath('exe'))
   : process.cwd();
 
@@ -108,7 +98,12 @@ const rootPath = app.isPackaged
 const WebServerService = require('./main/services/WebServerService');
 let webServerService = null;
 
-// Register web-server IPC handlers early so renderer can call them before app.ready
+// --- IPC HANDLERS: Register all at the top before any async/blocking code ---
+ipcMain.handle('get-master-file-path', async () => {
+  const masterFilePath = path.join(rootPath, 'master.xlsx');
+  return masterFilePath;
+});
+
 ipcMain.handle('start-web-server', async (event, displayAddress) => {
   try {
     if (displayAddress && webServerService && typeof webServerService.setDisplayAddress === 'function') {

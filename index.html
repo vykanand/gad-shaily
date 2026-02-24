@@ -1198,28 +1198,26 @@
       // Configuration
       const showSettings = false; // Set to false to hide settings button
       const showServer = false; // Set to false to hide Server button
+      // Set to true to always show console logs, false to suppress (except errors)
+      const showConsole = false;
 
-      // Global debug gate and logger wrapper. Set `window.APP_DEBUG = true` in dev console to enable verbose logs.
-      window.APP_DEBUG = !!window.APP_DEBUG;
+      // Console log suppression based on showConsole flag
       window.logger = window.logger || {
         log: (...args) => {
-          if (window.APP_DEBUG) console.log(...args);
+          if (showConsole) console.log(...args);
         },
         info: (...args) => {
-          if (window.APP_DEBUG) console.info(...args);
+          if (showConsole) console.info(...args);
         },
         warn: (...args) => {
-          if (window.APP_DEBUG) console.warn(...args);
+          if (showConsole) console.warn(...args);
         },
         error: (...args) => {
           // Always show errors
           console.error(...args);
         },
       };
-
-      // Suppress noisy non-error console output in production by default.
-      // Developers can enable verbose logs by setting `window.APP_DEBUG = true` in the console.
-      if (!window.APP_DEBUG) {
+      if (!showConsole) {
         try {
           console.log = function () {};
           console.info = function () {};
@@ -1299,7 +1297,11 @@
       // Load master data from Excel file (delegates to external implementation)
       async function loadMasterData(forceReload = false) {
         if (typeof window.loadMasterDataExternal === "function") {
-          return window.loadMasterDataExternal(forceReload);
+          const result = await window.loadMasterDataExternal(forceReload);
+          // Log availableHeaders and masterRawRows after loading
+          console.log("[App Start] availableHeaders:", availableHeaders);
+          console.log("[App Start] masterRawRows:", masterRawRows);
+          return result;
         }
         console.warn("loadMasterDataExternal not loaded yet");
         return Promise.resolve();
@@ -5010,10 +5012,22 @@
         // Settings modal handling
         async function openSettingsModal() {
           // Ensure master data (and headers) are loaded so mappings can use detected headers
+
+          // Suppress auto-open of parts modal during master data load for settings
+          const prevSuppress = window._suppressAutoOpenMasterOnLoad;
+          window._suppressAutoOpenMasterOnLoad = true;
           try {
             await loadMasterData();
           } catch (e) {
             // continue - loadMasterData handles its own errors
+          } finally {
+            window._suppressAutoOpenMasterOnLoad = prevSuppress;
+          }
+
+          // Always hide the parts modal if it is open to prevent overlap
+          const partsModal = document.getElementById("parts-modal");
+          if (partsModal && partsModal.style.display !== "none") {
+            partsModal.style.display = "none";
           }
 
           loadSettings();
