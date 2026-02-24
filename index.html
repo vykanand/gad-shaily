@@ -4460,12 +4460,23 @@
         } catch (e) {}
 
         function filterParts(searchTerm) {
-          const base =
-            _groupState &&
-            _groupState.enabled &&
-            _groupState.currentFilteredRows
-              ? _groupState.currentFilteredRows
-              : masterData;
+          // FIX: Start with masterData and apply ALL prior level selections
+          // to ensure hierarchical filtering is preserved when searching at level 2+
+          let base = masterData;
+
+          // Apply ALL prior level selections to ensure hierarchical filtering is preserved
+          if (_groupState && _groupState.enabled && _groupState.selections) {
+            _groupState.selections.forEach((sel) => {
+              if (sel && sel.header) {
+                base = base.filter(
+                  (r) =>
+                    String(r[sel.header] || "") === String(sel.value || ""),
+                );
+              }
+            });
+          }
+
+          // Then apply search term within the hierarchically filtered results
           const filtered = base.filter((item) => {
             const search = String(searchTerm || "").toLowerCase();
             if (!search) return true;
